@@ -530,6 +530,76 @@ namespace CTORTemp
 	unsigned int callerAddress;
 }
 
+namespace PhobosFogDamageAnimTemp
+{
+	TechnoClass* pSource = nullptr;
+	unsigned int callerAddress = 0;
+
+	void Set(TechnoClass* const pTechno, const unsigned int expectedCallerAddress)
+	{
+		pSource = pTechno;
+		callerAddress = expectedCallerAddress;
+	}
+
+	void TryAttachInvoker(AnimClass* const pAnim, const unsigned int actualCallerAddress)
+	{
+		if (!pAnim || !pSource || callerAddress != actualCallerAddress)
+			return;
+
+		AnimExt::ExtMap.Find(pAnim)->SetInvoker(pSource);
+		pSource = nullptr;
+		callerAddress = 0;
+	}
+}
+
+DEFINE_HOOK(0x70240C, TechnoClass_ReceiveDamage_DamageAnimOwnerContext, 0x5)
+{
+	GET(TechnoClass*, pThis, ESI);
+
+	PhobosFogDamageAnimTemp::Set(pThis, 0x7024AF);
+	return 0;
+}
+
+DEFINE_HOOK(0x7024E0, TechnoClass_ReceiveDamage_DefaultSmokeAnimOwnerContext, 0x5)
+{
+	GET(TechnoClass*, pThis, ESI);
+
+	PhobosFogDamageAnimTemp::Set(pThis, 0x70256B);
+	return 0;
+}
+
+DEFINE_HOOK(0x737EC6, UnitClass_ReceiveDamage_ExplodeAnimOwnerContext1, 0x5)
+{
+	GET(TechnoClass*, pThis, ESI);
+
+	PhobosFogDamageAnimTemp::Set(pThis, 0x737F13);
+	return 0;
+}
+
+DEFINE_HOOK(0x737F13, UnitClass_ReceiveDamage_ExplodeAnimOwnerContext2, 0x5)
+{
+	GET(TechnoClass*, pThis, ESI);
+
+	PhobosFogDamageAnimTemp::Set(pThis, 0x737F6B);
+	return 0;
+}
+
+DEFINE_HOOK(0x738703, UnitClass_Explode_DestroyAnimOwnerContext, 0x5)
+{
+	GET(TechnoClass*, pThis, ESI);
+
+	PhobosFogDamageAnimTemp::Set(pThis, 0x738748);
+	return 0;
+}
+
+DEFINE_HOOK(0x738830, UnitClass_Destroy_DestroyAnimOwnerContext, 0x5)
+{
+	GET(TechnoClass*, pThis, ESI);
+
+	PhobosFogDamageAnimTemp::Set(pThis, 0x73887E);
+	return 0;
+}
+
 DEFINE_HOOK(0x421EA0, AnimClass_CTOR_SetContext, 0x6)
 {
 	GET_STACK(CoordStruct const* const, coords, 0x8);
@@ -565,6 +635,7 @@ DEFINE_HOOK(0x4226F6, AnimClass_CTOR, 0x6)
 		SyncLogger::AddAnimCreationSyncLogEvent(CTORTemp::coords, CTORTemp::callerAddress);
 
 	AnimExt::ExtMap.Allocate(pItem);
+	PhobosFogDamageAnimTemp::TryAttachInvoker(pItem, CTORTemp::callerAddress);
 	pItem->UseCellLightConvert = AnimTypeExt::ExtMap.Find(pItem->Type)->TheaterPalette.Get(false);
 
 	return 0;

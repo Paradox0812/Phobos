@@ -22,6 +22,56 @@ void RulesExt::Remove(RulesClass* pThis)
 	Data = nullptr;
 }
 
+static int NormalizePhobosFogRevealHoldFrames(int holdFrames)
+{
+	if (holdFrames < -1)
+		return -1;
+
+	if (holdFrames > 900)
+		return 900;
+
+	return holdFrames;
+}
+
+static int ResolvePhobosFogInheritedHoldFrames(int holdFrames, int fallback)
+{
+	holdFrames = NormalizePhobosFogRevealHoldFrames(holdFrames);
+	fallback = fallback > 0 ? fallback : 0;
+
+	return holdFrames >= 0 ? holdFrames : fallback;
+}
+
+int RulesExt::ExtData::ResolvePhobosFogRevealVisibleHoldFrames(PhobosFogRevealHoldSource source, int warheadOverride) const
+{
+	const int globalFallback = this->PhobosFog_RevealSources_VisibleHoldFrames.Get() > 0
+		? this->PhobosFog_RevealSources_VisibleHoldFrames.Get()
+		: 0;
+
+	switch (source)
+	{
+	case PhobosFogRevealHoldSource::WarheadAreaReveal:
+		return ResolvePhobosFogInheritedHoldFrames(
+			warheadOverride,
+			ResolvePhobosFogInheritedHoldFrames(this->PhobosFog_WarheadReveal_VisibleHoldFrames.Get(), globalFallback));
+	case PhobosFogRevealHoldSource::WarheadFullMapReveal:
+		return ResolvePhobosFogInheritedHoldFrames(
+			warheadOverride,
+			ResolvePhobosFogInheritedHoldFrames(
+				this->PhobosFog_WarheadReveal_VisibleHoldFrames.Get(),
+				ResolvePhobosFogInheritedHoldFrames(this->PhobosFog_FullMapReveal_VisibleHoldFrames.Get(), globalFallback)));
+	case PhobosFogRevealHoldSource::SpyPlaneReveal:
+		return ResolvePhobosFogInheritedHoldFrames(this->PhobosFog_SpyPlaneReveal_VisibleHoldFrames.Get(), globalFallback);
+	case PhobosFogRevealHoldSource::FullMapReveal:
+		return ResolvePhobosFogInheritedHoldFrames(this->PhobosFog_FullMapReveal_VisibleHoldFrames.Get(), globalFallback);
+	case PhobosFogRevealHoldSource::SpySatelliteDeactivate:
+		return this->PhobosFog_SpySatellite_DeactivateHoldFrames.Get() > 0
+			? this->PhobosFog_SpySatellite_DeactivateHoldFrames.Get()
+			: 0;
+	default:
+		return globalFallback;
+	}
+}
+
 void RulesExt::LoadFromINIFile(RulesClass* pThis, CCINIClass* pINI)
 {
 	Data->LoadFromINI(pINI);
@@ -383,6 +433,265 @@ void RulesExt::ExtData::LoadBeforeTypeData(RulesClass* pThis, CCINIClass* pINI)
 	this->AIParadropMission.Read(exINI, GameStrings::General, "AIParadropMission");
 
 	this->CylinderRangefinding.Read(exINI, GameStrings::General, "CylinderRangefinding");
+	this->PhobosFog_Enabled.Read(exINI, GameStrings::General, "PhobosFog.Enabled");
+	this->PhobosFog_Debug.Read(exINI, GameStrings::General, "PhobosFog.Debug");
+	this->PhobosFog_Perf_Enabled.Read(exINI, GameStrings::General, "PhobosFog.Perf.Enabled");
+	this->PhobosFog_Perf_IntervalFrames.Read(exINI, GameStrings::General, "PhobosFog.Perf.IntervalFrames");
+	this->PhobosFog_DrawExploredOverlay.Read(exINI, GameStrings::General, "PhobosFog.DrawExploredOverlay");
+	this->PhobosFog_ExploredOverlayAlpha.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayAlpha");
+	this->PhobosFog_ExploredOverlayCellWidth.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayCellWidth");
+	this->PhobosFog_ExploredOverlayCellHeight.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayCellHeight");
+	this->PhobosFog_ExploredOverlayPaddingX.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayPaddingX");
+	this->PhobosFog_ExploredOverlayPaddingY.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayPaddingY");
+	this->PhobosFog_ExploredOverlayViewportPaddingCells.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayViewportPaddingCells");
+	this->PhobosFog_ExploredOverlaySoftEdge.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlaySoftEdge");
+	this->PhobosFog_ExploredOverlaySoftEdgeAlpha.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlaySoftEdgeAlpha");
+	this->PhobosFog_ExploredOverlaySoftEdgeVisibleAlpha.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlaySoftEdgeVisibleAlpha");
+	this->PhobosFog_ExploredOverlaySoftEdgeUnknownAlpha.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlaySoftEdgeUnknownAlpha");
+	this->PhobosFog_ExploredOverlayFadeInFrames.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayFadeInFrames");
+	this->PhobosFog_ExploredOverlayUnknownMerge.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayUnknownMerge");
+	this->PhobosFog_ExploredOverlayUnknownMergeAlpha.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayUnknownMergeAlpha");
+	this->PhobosFog_ExploredOverlayUnknownMergePadding.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayUnknownMergePadding");
+	this->PhobosFog_ExploredOverlaySoftEdgePadding.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlaySoftEdgePadding");
+	this->PhobosFog_ExploredOverlayAlphaVariance.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayAlphaVariance");
+	this->PhobosFog_ExploredOverlayFrontierMode.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayFrontierMode");
+	this->PhobosFog_ExploredOverlayShape.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayShape");
+	this->PhobosFog_ExploredOverlayDiamondBandHeight.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayDiamondBandHeight");
+	this->PhobosFog_ExploredOverlayMaxDrawRects.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayMaxDrawRects");
+	this->PhobosFog_ExploredOverlayHeightAware.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayHeightAware");
+	this->PhobosFog_ExploredOverlayHeightYOffset.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayHeightYOffset");
+	this->PhobosFog_ExploredOverlayCliffCover.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayCliffCover");
+	this->PhobosFog_ExploredOverlayCliffCoverHeight.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayCliffCoverHeight");
+	this->PhobosFog_ExploredOverlayCliffCoverAlpha.Read(exINI, GameStrings::General, "PhobosFog.ExploredOverlayCliffCoverAlpha");
+	this->PhobosFog_HideBuildings.Read(exINI, GameStrings::General, "PhobosFog.HideBuildings");
+	this->PhobosFog_HideEnemyFoot.Read(exINI, GameStrings::General, "PhobosFog.HideEnemyFoot");
+	this->PhobosFog_HideHoverCursor.Read(exINI, GameStrings::General, "PhobosFog.HideHoverCursor");
+	this->PhobosFog_HideHoverTooltip.Read(exINI, GameStrings::General, "PhobosFog.HideHoverTooltip");
+	this->PhobosFog_HideHoverHealthBar.Read(exINI, GameStrings::General, "PhobosFog.HideHoverHealthBar");
+	this->PhobosFog_GateHiddenObjectCommands.Read(exINI, GameStrings::General, "PhobosFog.GateHiddenObjectCommands");
+	this->PhobosFog_GateAutoTargets.Read(exINI, GameStrings::General, "PhobosFog.GateAutoTargets");
+	this->PhobosFog_GateAutoFire.Read(exINI, GameStrings::General, "PhobosFog.GateAutoFire");
+	this->PhobosFog_GateForceFireCells.Read(exINI, GameStrings::General, "PhobosFog.GateForceFireCells");
+	this->PhobosFog_HideRadarObjects.Read(exINI, GameStrings::General, "PhobosFog.HideRadarObjects");
+	this->PhobosFog_OverrideRadarFog.Read(exINI, GameStrings::General, "PhobosFog.OverrideRadarFog");
+	this->PhobosFog_HideTiberiumSpawners.Read(exINI, GameStrings::General, "PhobosFog.HideTiberiumSpawners");
+	this->PhobosFog_HideWorldAnim.Read(exINI, GameStrings::General, "PhobosFog.HideWorldAnim");
+	this->PhobosFog_HideWorldParticles.Read(exINI, GameStrings::General, "PhobosFog.HideWorldParticles");
+	this->PhobosFog_SyncSpySatellite.Read(exINI, GameStrings::General, "PhobosFog.SyncSpySatellite");
+	this->PhobosFog_SpySatellite_MarkExplored.Read(exINI, GameStrings::General, "PhobosFog.SpySatellite.MarkExplored");
+	this->PhobosFog_SpySatellite_PersistentVisible.Read(exINI, GameStrings::General, "PhobosFog.SpySatellite.PersistentVisible");
+	this->PhobosFog_SpySatellite_DeactivateHoldFrames.Read(exINI, GameStrings::General, "PhobosFog.SpySatellite.DeactivateHoldFrames");
+	this->PhobosFog_SyncFullMapReveal.Read(exINI, GameStrings::General, "PhobosFog.SyncFullMapReveal");
+	this->PhobosFog_FullMapReveal_MarkExplored.Read(exINI, GameStrings::General, "PhobosFog.FullMapReveal.MarkExplored");
+	this->PhobosFog_FullMapReveal_VisibleHoldFrames.Read(exINI, GameStrings::General, "PhobosFog.FullMapReveal.VisibleHoldFrames");
+	this->PhobosFog_WarheadReveal_VisibleHoldFrames.Read(exINI, GameStrings::General, "PhobosFog.WarheadReveal.VisibleHoldFrames");
+	this->PhobosFog_SpyPlaneReveal_VisibleHoldFrames.Read(exINI, GameStrings::General, "PhobosFog.SpyPlaneReveal.VisibleHoldFrames");
+	this->PhobosFog_RevealSources_VisibleHoldFrames.Read(exINI, GameStrings::General, "PhobosFog.RevealSources.VisibleHoldFrames");
+	this->PhobosFog_UpdateInterval.Read(exINI, GameStrings::General, "PhobosFog.UpdateInterval");
+	if (this->PhobosFog_ExploredOverlayAlpha < 0)
+	{
+		this->PhobosFog_ExploredOverlayAlpha = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlayAlpha > 255)
+	{
+		this->PhobosFog_ExploredOverlayAlpha = 255;
+	}
+	if (this->PhobosFog_ExploredOverlayCellWidth <= 0)
+	{
+		this->PhobosFog_ExploredOverlayCellWidth = 68;
+	}
+	if (this->PhobosFog_ExploredOverlayCellHeight <= 0)
+	{
+		this->PhobosFog_ExploredOverlayCellHeight = 38;
+	}
+	if (this->PhobosFog_ExploredOverlayPaddingX < 0)
+	{
+		this->PhobosFog_ExploredOverlayPaddingX = 0;
+	}
+	if (this->PhobosFog_ExploredOverlayPaddingY < 0)
+	{
+		this->PhobosFog_ExploredOverlayPaddingY = 0;
+	}
+	if (this->PhobosFog_ExploredOverlayViewportPaddingCells < 0)
+	{
+		this->PhobosFog_ExploredOverlayViewportPaddingCells = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlayViewportPaddingCells > 8)
+	{
+		this->PhobosFog_ExploredOverlayViewportPaddingCells = 8;
+	}
+	if (this->PhobosFog_ExploredOverlaySoftEdgeAlpha < 0)
+	{
+		this->PhobosFog_ExploredOverlaySoftEdgeAlpha = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlaySoftEdgeAlpha > 255)
+	{
+		this->PhobosFog_ExploredOverlaySoftEdgeAlpha = 255;
+	}
+	if (this->PhobosFog_ExploredOverlaySoftEdgeVisibleAlpha < 0)
+	{
+		this->PhobosFog_ExploredOverlaySoftEdgeVisibleAlpha = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlaySoftEdgeVisibleAlpha > 255)
+	{
+		this->PhobosFog_ExploredOverlaySoftEdgeVisibleAlpha = 255;
+	}
+	if (this->PhobosFog_ExploredOverlaySoftEdgeUnknownAlpha < 0)
+	{
+		this->PhobosFog_ExploredOverlaySoftEdgeUnknownAlpha = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlaySoftEdgeUnknownAlpha > 255)
+	{
+		this->PhobosFog_ExploredOverlaySoftEdgeUnknownAlpha = 255;
+	}
+	if (this->PhobosFog_ExploredOverlayFadeInFrames < 0)
+	{
+		this->PhobosFog_ExploredOverlayFadeInFrames = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlayFadeInFrames > 60)
+	{
+		this->PhobosFog_ExploredOverlayFadeInFrames = 60;
+	}
+	if (this->PhobosFog_ExploredOverlayUnknownMergeAlpha < 0)
+	{
+		this->PhobosFog_ExploredOverlayUnknownMergeAlpha = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlayUnknownMergeAlpha > 255)
+	{
+		this->PhobosFog_ExploredOverlayUnknownMergeAlpha = 255;
+	}
+	if (this->PhobosFog_ExploredOverlayUnknownMergePadding < 0)
+	{
+		this->PhobosFog_ExploredOverlayUnknownMergePadding = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlayUnknownMergePadding > 64)
+	{
+		this->PhobosFog_ExploredOverlayUnknownMergePadding = 64;
+	}
+	if (this->PhobosFog_ExploredOverlaySoftEdgePadding < 0)
+	{
+		this->PhobosFog_ExploredOverlaySoftEdgePadding = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlaySoftEdgePadding > 64)
+	{
+		this->PhobosFog_ExploredOverlaySoftEdgePadding = 64;
+	}
+	if (this->PhobosFog_ExploredOverlayAlphaVariance < 0)
+	{
+		this->PhobosFog_ExploredOverlayAlphaVariance = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlayAlphaVariance > 64)
+	{
+		this->PhobosFog_ExploredOverlayAlphaVariance = 64;
+	}
+	this->PhobosFog_ExploredOverlayFrontierMode = this->PhobosFog_ExploredOverlayFrontierMode <= 4 ? 4 : 8;
+	if (this->PhobosFog_ExploredOverlayShape < 0)
+	{
+		this->PhobosFog_ExploredOverlayShape = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlayShape > 2)
+	{
+		this->PhobosFog_ExploredOverlayShape = 2;
+	}
+	if (this->PhobosFog_ExploredOverlayDiamondBandHeight < 1)
+	{
+		this->PhobosFog_ExploredOverlayDiamondBandHeight = 1;
+	}
+	else if (this->PhobosFog_ExploredOverlayDiamondBandHeight > 8)
+	{
+		this->PhobosFog_ExploredOverlayDiamondBandHeight = 8;
+	}
+	if (this->PhobosFog_ExploredOverlayMaxDrawRects < 1000)
+	{
+		this->PhobosFog_ExploredOverlayMaxDrawRects = 1000;
+	}
+	else if (this->PhobosFog_ExploredOverlayMaxDrawRects > 100000)
+	{
+		this->PhobosFog_ExploredOverlayMaxDrawRects = 100000;
+	}
+	if (this->PhobosFog_ExploredOverlayHeightYOffset < -256)
+	{
+		this->PhobosFog_ExploredOverlayHeightYOffset = -256;
+	}
+	else if (this->PhobosFog_ExploredOverlayHeightYOffset > 256)
+	{
+		this->PhobosFog_ExploredOverlayHeightYOffset = 256;
+	}
+	if (this->PhobosFog_ExploredOverlayCliffCoverHeight < 0)
+	{
+		this->PhobosFog_ExploredOverlayCliffCoverHeight = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlayCliffCoverHeight > 256)
+	{
+		this->PhobosFog_ExploredOverlayCliffCoverHeight = 256;
+	}
+	if (this->PhobosFog_ExploredOverlayCliffCoverAlpha < 0)
+	{
+		this->PhobosFog_ExploredOverlayCliffCoverAlpha = 0;
+	}
+	else if (this->PhobosFog_ExploredOverlayCliffCoverAlpha > 255)
+	{
+		this->PhobosFog_ExploredOverlayCliffCoverAlpha = 255;
+	}
+	if (this->PhobosFog_UpdateInterval <= 0)
+	{
+		Debug::Log("[Developer warning] [General] PhobosFog.UpdateInterval is set to %d which is invalid, set to 1 instead.\n", this->PhobosFog_UpdateInterval.Get());
+		this->PhobosFog_UpdateInterval = 1;
+	}
+	if (this->PhobosFog_Perf_IntervalFrames <= 0)
+	{
+		Debug::Log("[Developer warning] [General] PhobosFog.Perf.IntervalFrames is set to %d which is invalid, set to 300 instead.\n", this->PhobosFog_Perf_IntervalFrames.Get());
+		this->PhobosFog_Perf_IntervalFrames = 300;
+	}
+	if (this->PhobosFog_RevealSources_VisibleHoldFrames < 0)
+	{
+		Debug::Log("[Developer warning] [General] PhobosFog.RevealSources.VisibleHoldFrames is set to %d which is invalid, set to 0 instead.\n", this->PhobosFog_RevealSources_VisibleHoldFrames.Get());
+		this->PhobosFog_RevealSources_VisibleHoldFrames = 0;
+	}
+	else if (this->PhobosFog_RevealSources_VisibleHoldFrames > 900)
+	{
+		this->PhobosFog_RevealSources_VisibleHoldFrames = 900;
+	}
+	if (this->PhobosFog_FullMapReveal_VisibleHoldFrames < -1)
+	{
+		Debug::Log("[Developer warning] [General] PhobosFog.FullMapReveal.VisibleHoldFrames is set to %d which is invalid, set to -1 instead.\n", this->PhobosFog_FullMapReveal_VisibleHoldFrames.Get());
+		this->PhobosFog_FullMapReveal_VisibleHoldFrames = -1;
+	}
+	else if (this->PhobosFog_FullMapReveal_VisibleHoldFrames > 900)
+	{
+		this->PhobosFog_FullMapReveal_VisibleHoldFrames = 900;
+	}
+	if (this->PhobosFog_WarheadReveal_VisibleHoldFrames < -1)
+	{
+		Debug::Log("[Developer warning] [General] PhobosFog.WarheadReveal.VisibleHoldFrames is set to %d which is invalid, set to -1 instead.\n", this->PhobosFog_WarheadReveal_VisibleHoldFrames.Get());
+		this->PhobosFog_WarheadReveal_VisibleHoldFrames = -1;
+	}
+	else if (this->PhobosFog_WarheadReveal_VisibleHoldFrames > 900)
+	{
+		this->PhobosFog_WarheadReveal_VisibleHoldFrames = 900;
+	}
+	if (this->PhobosFog_SpyPlaneReveal_VisibleHoldFrames < -1)
+	{
+		Debug::Log("[Developer warning] [General] PhobosFog.SpyPlaneReveal.VisibleHoldFrames is set to %d which is invalid, set to -1 instead.\n", this->PhobosFog_SpyPlaneReveal_VisibleHoldFrames.Get());
+		this->PhobosFog_SpyPlaneReveal_VisibleHoldFrames = -1;
+	}
+	else if (this->PhobosFog_SpyPlaneReveal_VisibleHoldFrames > 900)
+	{
+		this->PhobosFog_SpyPlaneReveal_VisibleHoldFrames = 900;
+	}
+	if (this->PhobosFog_SpySatellite_DeactivateHoldFrames < 0)
+	{
+		Debug::Log("[Developer warning] [General] PhobosFog.SpySatellite.DeactivateHoldFrames is set to %d which is invalid, set to 0 instead.\n", this->PhobosFog_SpySatellite_DeactivateHoldFrames.Get());
+		this->PhobosFog_SpySatellite_DeactivateHoldFrames = 0;
+	}
+	else if (this->PhobosFog_SpySatellite_DeactivateHoldFrames > 900)
+	{
+		this->PhobosFog_SpySatellite_DeactivateHoldFrames = 900;
+	}
+	if (this->PhobosFog_Enabled && this->PhobosFog_Debug)
+	{
+		Debug::Log("[PhobosFog] Debug enabled from [General]. UpdateInterval=%d\n", this->PhobosFog_UpdateInterval.Get());
+	}
 
 	this->PenetratesTransport_Level.Read(exINI, GameStrings::CombatDamage, "PenetratesTransport.Level");
 
@@ -742,6 +1051,61 @@ void RulesExt::ExtData::Serialize(T& Stm)
 		.Process(this->AIParadropMission)
 		.Process(this->DefaultToGuardArea)
 		.Process(this->CylinderRangefinding)
+		.Process(this->PhobosFog_Enabled)
+		.Process(this->PhobosFog_Debug)
+		.Process(this->PhobosFog_Perf_Enabled)
+		.Process(this->PhobosFog_Perf_IntervalFrames)
+		.Process(this->PhobosFog_DrawExploredOverlay)
+		.Process(this->PhobosFog_ExploredOverlayAlpha)
+		.Process(this->PhobosFog_ExploredOverlayCellWidth)
+		.Process(this->PhobosFog_ExploredOverlayCellHeight)
+		.Process(this->PhobosFog_ExploredOverlayPaddingX)
+		.Process(this->PhobosFog_ExploredOverlayPaddingY)
+		.Process(this->PhobosFog_ExploredOverlayViewportPaddingCells)
+		.Process(this->PhobosFog_ExploredOverlaySoftEdge)
+		.Process(this->PhobosFog_ExploredOverlaySoftEdgeAlpha)
+		.Process(this->PhobosFog_ExploredOverlaySoftEdgeVisibleAlpha)
+		.Process(this->PhobosFog_ExploredOverlaySoftEdgeUnknownAlpha)
+		.Process(this->PhobosFog_ExploredOverlayFadeInFrames)
+		.Process(this->PhobosFog_ExploredOverlayUnknownMerge)
+		.Process(this->PhobosFog_ExploredOverlayUnknownMergeAlpha)
+		.Process(this->PhobosFog_ExploredOverlayUnknownMergePadding)
+		.Process(this->PhobosFog_ExploredOverlaySoftEdgePadding)
+		.Process(this->PhobosFog_ExploredOverlayAlphaVariance)
+		.Process(this->PhobosFog_ExploredOverlayFrontierMode)
+		.Process(this->PhobosFog_ExploredOverlayShape)
+		.Process(this->PhobosFog_ExploredOverlayDiamondBandHeight)
+		.Process(this->PhobosFog_ExploredOverlayMaxDrawRects)
+		.Process(this->PhobosFog_ExploredOverlayHeightAware)
+		.Process(this->PhobosFog_ExploredOverlayHeightYOffset)
+		.Process(this->PhobosFog_ExploredOverlayCliffCover)
+		.Process(this->PhobosFog_ExploredOverlayCliffCoverHeight)
+		.Process(this->PhobosFog_ExploredOverlayCliffCoverAlpha)
+		.Process(this->PhobosFog_HideBuildings)
+		.Process(this->PhobosFog_HideEnemyFoot)
+		.Process(this->PhobosFog_HideHoverCursor)
+		.Process(this->PhobosFog_HideHoverTooltip)
+		.Process(this->PhobosFog_HideHoverHealthBar)
+		.Process(this->PhobosFog_GateHiddenObjectCommands)
+		.Process(this->PhobosFog_GateAutoTargets)
+		.Process(this->PhobosFog_GateAutoFire)
+		.Process(this->PhobosFog_GateForceFireCells)
+		.Process(this->PhobosFog_HideRadarObjects)
+		.Process(this->PhobosFog_OverrideRadarFog)
+		.Process(this->PhobosFog_HideTiberiumSpawners)
+		.Process(this->PhobosFog_HideWorldAnim)
+		.Process(this->PhobosFog_HideWorldParticles)
+		.Process(this->PhobosFog_SyncSpySatellite)
+		.Process(this->PhobosFog_SpySatellite_MarkExplored)
+		.Process(this->PhobosFog_SpySatellite_PersistentVisible)
+		.Process(this->PhobosFog_SpySatellite_DeactivateHoldFrames)
+		.Process(this->PhobosFog_SyncFullMapReveal)
+		.Process(this->PhobosFog_FullMapReveal_MarkExplored)
+		.Process(this->PhobosFog_FullMapReveal_VisibleHoldFrames)
+		.Process(this->PhobosFog_WarheadReveal_VisibleHoldFrames)
+		.Process(this->PhobosFog_SpyPlaneReveal_VisibleHoldFrames)
+		.Process(this->PhobosFog_RevealSources_VisibleHoldFrames)
+		.Process(this->PhobosFog_UpdateInterval)
 		.Process(this->PenetratesTransport_Level)
 		.Process(this->UnitsUnsellable)
 		.Process(this->DriverKilled_KillPassengers)

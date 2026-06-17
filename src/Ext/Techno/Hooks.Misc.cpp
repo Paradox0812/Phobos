@@ -1,10 +1,13 @@
 #include "Body.h"
 
+#include <BuildingClass.h>
 #include <EventClass.h>
+#include <MapClass.h>
 #include <TunnelLocomotionClass.h>
 #include <JumpjetLocomotionClass.h>
 
 #include <Ext/Anim/Body.h>
+#include <Ext/House/Body.h>
 
 #pragma region SlaveManagerClass
 
@@ -583,6 +586,89 @@ DEFINE_HOOK(0x74691D, UnitClass_UpdateDisguise_EMP, 0x6)
 
 #pragma region AttackMindControlledDelay
 
+namespace PhobosFogAutoTarget
+{
+	static bool IsCellHardVisibleToHouseOrAllies(HouseClass* const pViewerHouse, const CellStruct& cell, bool& querySucceeded)
+	{
+		querySucceeded = false;
+
+		if (!MapClass::Instance.TryGetCellAt(cell))
+			return false;
+
+		const int cellIndex = MapClass::GetCellIndex(cell);
+
+		if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
+			return false;
+
+		return HouseExt::ExtData::IsPhobosFogCellHardVisibleToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+	}
+
+	bool IsPhobosFogObjectHardVisibleToHouse(HouseClass* const pViewerHouse, ObjectClass* const pTarget)
+	{
+		if (!pViewerHouse || pViewerHouse->IsObserver() || !pTarget)
+			return true;
+
+		if (const auto pBuilding = abstract_cast<BuildingClass*, true>(pTarget))
+		{
+			if (!pBuilding->Type)
+				return true;
+
+			const auto pFoundation = pBuilding->GetFoundationData(false);
+
+			if (!pFoundation)
+				return true;
+
+			const auto baseCell = pBuilding->GetMapCoords();
+			const CellStruct foundationEnd = { 0x7FFF, 0x7FFF };
+			bool hadReliableQuery = false;
+
+			for (auto pCellOffset = pFoundation; *pCellOffset != foundationEnd; ++pCellOffset)
+			{
+				bool cellQuerySucceeded = false;
+				const bool visible = IsCellHardVisibleToHouseOrAllies(pViewerHouse, baseCell + *pCellOffset, cellQuerySucceeded);
+
+				hadReliableQuery = hadReliableQuery || cellQuerySucceeded;
+
+				if (cellQuerySucceeded && visible)
+					return true;
+			}
+
+			return !hadReliableQuery;
+		}
+
+		const auto pCell = pTarget->GetCell();
+
+		if (!pCell)
+			return true;
+
+		bool querySucceeded = false;
+		const bool visible = IsCellHardVisibleToHouseOrAllies(pViewerHouse, pCell->MapCoords, querySucceeded);
+
+		return !querySucceeded || visible;
+	}
+
+	bool CanPhobosFogAutoTargetObject(TechnoClass* const pAttacker, ObjectClass* const pTarget)
+	{
+		const auto pRulesExt = RulesExt::Global();
+
+		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_GateAutoTargets)
+			return true;
+
+		if (!pAttacker || !pTarget || !pAttacker->Owner)
+			return true;
+
+		const auto pTargetTechno = abstract_cast<TechnoClass*, true>(pTarget);
+
+		if (!pTargetTechno || !pTargetTechno->Owner)
+			return true;
+
+		if (pAttacker->Owner->IsAlliedWith(pTargetTechno->Owner))
+			return true;
+
+		return IsPhobosFogObjectHardVisibleToHouse(pAttacker->Owner, pTarget);
+	}
+}
+
 static bool __fastcall CanAttackMindControlled(TechnoClass* pControlled, TechnoClass* pRetaliator)
 {
 	const auto pMind = pControlled->MindControlledBy;
@@ -617,6 +703,9 @@ DEFINE_HOOK(0x6F88BF, TechnoClass_CanAutoTargetObject_AttackMindControlledDelay,
 	if (const auto pTechno = abstract_cast<TechnoClass*>(pTarget))
 	{
 		GET(TechnoClass* const, pThis, EDI);
+
+		if (!PhobosFogAutoTarget::CanPhobosFogAutoTargetObject(pThis, pTarget))
+			return CannotSelect;
 
 		if (!CanAttackMindControlled(pTechno, pThis))
 			return CannotSelect;

@@ -19,6 +19,7 @@ public:
 	public:
 
 		Valueable<int> Reveal;
+		Valueable<int> PhobosFog_Warhead_RevealVisibleHoldFrames;
 		Valueable<int> CreateGap;
 		Valueable<int> TransactMoney;
 		Valueable<bool> TransactMoney_Display;
@@ -280,6 +281,7 @@ public:
 	public:
 		ExtData(WarheadTypeClass* OwnerObject) : Extension<WarheadTypeClass>(OwnerObject)
 			, Reveal { 0 }
+			, PhobosFog_Warhead_RevealVisibleHoldFrames { -1 }
 			, CreateGap { 0 }
 			, TransactMoney { 0 }
 			, TransactMoney_Display { false }

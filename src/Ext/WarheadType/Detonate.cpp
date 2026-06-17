@@ -1,8 +1,11 @@
 #include "Body.h"
 
 #include <Ext/Anim/Body.h>
+#include <Ext/House/Body.h>
+#include <Ext/Rules/Body.h>
 #include <Ext/SWType/Body.h>
 #include <Misc/FlyingStrings.h>
+#include <Unsorted.h>
 #include <Utilities/Helpers.Alex.h>
 #include <Utilities/AresFunctions.h>
 #include <Ext/CaptureManager/Body.h>
@@ -17,6 +20,66 @@ static void __stdcall Sub_4ADEE0(char a1, DWORD a2)
 static void __stdcall Sub_4ADCD0(char a1, DWORD a2)
 {
 	JMP_STD(0x4ADCD0);
+}
+
+static bool IsPhobosFogRevealSourceEnabled()
+{
+	auto const pRulesExt = RulesExt::Global();
+
+	return pRulesExt && pRulesExt->PhobosFog_Enabled;
+}
+
+static bool MarkPhobosFogWarheadRevealVisible(HouseClass* pHouse, CoordStruct coords, int reveal, WarheadTypeExt::ExtData* pWarheadExt)
+{
+	if (!IsPhobosFogRevealSourceEnabled() || !pHouse || reveal <= 0)
+		return false;
+
+	if (auto const pHouseExt = HouseExt::ExtMap.TryFind(pHouse))
+	{
+		const auto center = CellClass::Coord2Cell(coords);
+		const auto radius = static_cast<double>(reveal);
+
+		auto const pRulesExt = RulesExt::Global();
+		const int holdFrames = pRulesExt
+			? pRulesExt->ResolvePhobosFogRevealVisibleHoldFrames(RulesExt::ExtData::PhobosFogRevealHoldSource::WarheadAreaReveal, pWarheadExt ? pWarheadExt->PhobosFog_Warhead_RevealVisibleHoldFrames.Get() : -1)
+			: 0;
+
+		if (holdFrames > 0)
+		{
+			pHouseExt->MarkPhobosFogAreaVisibleUntil(center, radius, Unsorted::CurrentFrame + holdFrames);
+		}
+		else
+		{
+			pHouseExt->MarkPhobosFogAreaExplored(center, radius);
+		}
+
+		return true;
+	}
+
+	return false;
+}
+
+static bool MarkPhobosFogFullMapReveal(HouseClass* pHouse, WarheadTypeExt::ExtData* pWarheadExt)
+{
+	auto const pRulesExt = RulesExt::Global();
+
+	if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_SyncFullMapReveal || !pHouse)
+		return false;
+
+	if (auto const pHouseExt = HouseExt::ExtMap.TryFind(pHouse))
+	{
+		if (pRulesExt->PhobosFog_FullMapReveal_MarkExplored)
+			pHouseExt->MarkAllPhobosFogCellsExplored();
+
+		const int holdFrames = pRulesExt->ResolvePhobosFogRevealVisibleHoldFrames(RulesExt::ExtData::PhobosFogRevealHoldSource::WarheadFullMapReveal, pWarheadExt ? pWarheadExt->PhobosFog_Warhead_RevealVisibleHoldFrames.Get() : -1);
+
+		if (holdFrames > 0)
+			pHouseExt->ExtendPhobosFogFullMapVisibleUntil(Unsorted::CurrentFrame + holdFrames);
+
+		return true;
+	}
+
+	return false;
 }
 
 #pragma endregion
@@ -71,6 +134,7 @@ void WarheadTypeExt::ExtData::Detonate(TechnoClass* pOwner, HouseClass* pHouse, 
 			{
 				Sub_4ADEE0(0, 0);
 				MapClass::Instance.RevealArea2(const_cast<CoordStruct*>(&coords), reveal, pHouse, 0, 0, 0, 1, 0);
+				MarkPhobosFogWarheadRevealVisible(pHouse, coords, reveal, this);
 				Sub_4ADCD0(0, 0);
 				MapClass::Instance.sub_657CE0();
 				MapClass::Instance.MarkNeedsRedraw(2);
@@ -79,6 +143,7 @@ void WarheadTypeExt::ExtData::Detonate(TechnoClass* pOwner, HouseClass* pHouse, 
 		else if (reveal < 0)
 		{
 			MapClass::Instance.Reveal(pHouse);
+			MarkPhobosFogFullMapReveal(pHouse, this);
 		}
 
 		if (this->TransactMoney)

@@ -1,9 +1,206 @@
 #include "Body.h"
 
+#include <BuildingClass.h>
+#include <Ext/House/Body.h>
+#include <Ext/Rules/Body.h>
 #include <Ext/Techno/Body.h>
 #include <Ext/WarheadType/Body.h>
 #include <Ext/WeaponType/Body.h>
+#include <TechnoClass.h>
 #include <Utilities/AresFunctions.h>
+
+namespace PhobosFogWorldAnim
+{
+	static bool IsCellVisibleToViewerOrAllies(HouseClass* const pViewerHouse, const int cellIndex, bool& querySucceeded)
+	{
+		return HouseExt::ExtData::IsPhobosFogCellHardVisibleToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+	}
+
+	static bool TryGetCellIndex(const CellStruct& cell, int& cellIndex)
+	{
+		if (!MapClass::Instance.TryGetCellAt(cell))
+			return false;
+
+		cellIndex = MapClass::GetCellIndex(cell);
+		return cellIndex >= 0 && cellIndex < MapClass::MaxCells;
+	}
+
+	static bool TryGetObjectCellIndex(ObjectClass* const pObject, int& cellIndex)
+	{
+		if (!pObject)
+			return false;
+
+		return TryGetCellIndex(pObject->GetMapCoords(), cellIndex);
+	}
+
+	static bool TryGetTechnoCellIndex(TechnoClass* const pTechno, int& cellIndex)
+	{
+		return pTechno && TryGetCellIndex(pTechno->GetMapCoords(), cellIndex);
+	}
+
+	static bool IsBuildingFoundationVisibleToViewerOrAllies(BuildingClass* const pBuilding, HouseClass* const pViewerHouse, bool& querySucceeded)
+	{
+		querySucceeded = false;
+
+		if (!pBuilding || !pBuilding->Type || !pViewerHouse)
+			return false;
+
+		auto const pFoundation = pBuilding->GetFoundationData(false);
+
+		if (!pFoundation)
+			return false;
+
+		const auto baseCell = pBuilding->GetMapCoords();
+		const CellStruct foundationEnd = { 0x7FFF, 0x7FFF };
+
+		for (auto pCellOffset = pFoundation; *pCellOffset != foundationEnd; ++pCellOffset)
+		{
+			const auto cell = baseCell + *pCellOffset;
+
+			if (!MapClass::Instance.TryGetCellAt(cell))
+				continue;
+
+			const int cellIndex = MapClass::GetCellIndex(cell);
+
+			if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
+				continue;
+
+			bool cellQuerySucceeded = false;
+			const bool visible = IsCellVisibleToViewerOrAllies(pViewerHouse, cellIndex, cellQuerySucceeded);
+
+			if (!cellQuerySucceeded)
+			{
+				querySucceeded = false;
+				return false;
+			}
+
+			querySucceeded = true;
+
+			if (visible)
+				return true;
+		}
+
+		return false;
+	}
+
+	static bool IsTechnoVisibleToViewerOrAllies(TechnoClass* const pTechno, HouseClass* const pViewerHouse, bool& querySucceeded)
+	{
+		if (auto const pBuilding = abstract_cast<BuildingClass*, true>(pTechno))
+			return IsBuildingFoundationVisibleToViewerOrAllies(pBuilding, pViewerHouse, querySucceeded);
+
+		querySucceeded = false;
+
+		int cellIndex = -1;
+
+		if (!TryGetTechnoCellIndex(pTechno, cellIndex))
+			return false;
+
+		return IsCellVisibleToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+	}
+
+	static TechnoClass* TryGetObjectTechno(ObjectClass* const pObject)
+	{
+		if (!pObject || (pObject->AbstractFlags & AbstractFlags::Techno) == AbstractFlags::None)
+			return nullptr;
+
+		return reinterpret_cast<TechnoClass*>(pObject);
+	}
+
+	static bool TryGetAnimCellIndex(AnimClass* const pAnim, int& cellIndex)
+	{
+		if (!pAnim)
+			return false;
+
+		return TryGetCellIndex(pAnim->GetMapCoords(), cellIndex);
+	}
+
+	static bool TryGetMapSpaceCellIndex(AnimClass* const pAnim, int& cellIndex)
+	{
+		if (!pAnim)
+			return false;
+
+		if (TryGetAnimCellIndex(pAnim, cellIndex))
+			return true;
+
+		if (TryGetObjectCellIndex(pAnim->OwnerObject, cellIndex))
+			return true;
+
+		const auto pExt = AnimExt::ExtMap.TryFind(pAnim);
+
+		return pExt && TryGetObjectCellIndex(pExt->ParentBuilding, cellIndex);
+	}
+
+	static TechnoClass* TryGetAnimOwnerTechno(AnimClass* const pAnim, AnimExt::ExtData* const pExt)
+	{
+		if (!pAnim)
+			return nullptr;
+
+		if (auto const pOwnerTechno = TryGetObjectTechno(pAnim->OwnerObject))
+			return pOwnerTechno;
+
+		if (!pExt)
+			return nullptr;
+
+		if (pExt->Invoker)
+			return pExt->Invoker;
+
+		return pExt->ParentBuilding;
+	}
+
+	static bool ShouldHide(AnimClass* const pAnim)
+	{
+		const auto pRulesExt = RulesExt::Global();
+
+		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pAnim || !pAnim->Type)
+		{
+			return false;
+		}
+
+		const auto pViewerHouse = HouseClass::CurrentPlayer;
+
+		if (!pViewerHouse || pViewerHouse->IsObserver())
+			return false;
+
+		const auto pExt = AnimExt::ExtMap.TryFind(pAnim);
+		const auto pParentBuilding = pExt ? pExt->ParentBuilding : nullptr;
+
+		if (pParentBuilding)
+		{
+			if (!pRulesExt->PhobosFog_HideWorldAnim && !pRulesExt->PhobosFog_HideBuildings)
+				return false;
+
+			bool querySucceeded = false;
+			const bool visible = IsBuildingFoundationVisibleToViewerOrAllies(pParentBuilding, pViewerHouse, querySucceeded);
+
+			return querySucceeded && !visible;
+		}
+
+		if (!pRulesExt->PhobosFog_HideWorldAnim)
+			return false;
+
+		int cellIndex = -1;
+
+		if (const auto pOwnerTechno = TryGetAnimOwnerTechno(pAnim, pExt))
+		{
+			if (pOwnerTechno->Owner && !pViewerHouse->IsAlliedWith(pOwnerTechno->Owner))
+			{
+				bool querySucceeded = false;
+				const bool visible = IsTechnoVisibleToViewerOrAllies(pOwnerTechno, pViewerHouse, querySucceeded);
+
+				if (querySucceeded)
+					return !visible;
+			}
+		}
+
+		if (!TryGetMapSpaceCellIndex(pAnim, cellIndex))
+			return false;
+
+		bool querySucceeded = false;
+		const bool visible = IsCellVisibleToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+
+		return querySucceeded && !visible;
+	}
+}
 
 namespace AnimLoggingTemp
 {
@@ -436,6 +633,9 @@ DEFINE_HOOK(0x423061, AnimClass_DrawIt_Visibility, 0x6)
 	enum { SkipDrawing = 0x4238A3 };
 
 	GET(AnimClass* const, pThis, ESI);
+
+	if (PhobosFogWorldAnim::ShouldHide(pThis))
+		return SkipDrawing;
 
 	auto const pTypeExt = AnimTypeExt::ExtMap.Find(pThis->Type);
 

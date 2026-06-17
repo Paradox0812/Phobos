@@ -132,6 +132,16 @@ void WarheadTypeExt::ExtData::LoadFromINIFile(CCINIClass* const pINI)
 
 	// Miscs
 	this->Reveal.Read(exINI, pSection, "Reveal");
+	this->PhobosFog_Warhead_RevealVisibleHoldFrames.Read(exINI, pSection, "PhobosFog.Warhead.RevealVisibleHoldFrames");
+	if (this->PhobosFog_Warhead_RevealVisibleHoldFrames < -1)
+	{
+		Debug::Log("[Developer warning] [%s] PhobosFog.Warhead.RevealVisibleHoldFrames is set to %d which is invalid, set to -1 instead.\n", pSection, this->PhobosFog_Warhead_RevealVisibleHoldFrames.Get());
+		this->PhobosFog_Warhead_RevealVisibleHoldFrames = -1;
+	}
+	else if (this->PhobosFog_Warhead_RevealVisibleHoldFrames > 900)
+	{
+		this->PhobosFog_Warhead_RevealVisibleHoldFrames = 900;
+	}
 	this->CreateGap.Read(exINI, pSection, "CreateGap");
 	this->TransactMoney.Read(exINI, pSection, "TransactMoney");
 	this->TransactMoney_Display.Read(exINI, pSection, "TransactMoney.Display");
@@ -520,6 +530,7 @@ void WarheadTypeExt::ExtData::Serialize(T& Stm)
 {
 	Stm
 		.Process(this->Reveal)
+		.Process(this->PhobosFog_Warhead_RevealVisibleHoldFrames)
 		.Process(this->CreateGap)
 		.Process(this->TransactMoney)
 		.Process(this->TransactMoney_Display)

@@ -6,13 +6,18 @@
 #include <Ext/Anim/Body.h>
 #include <Ext/BuildingType/Body.h>
 #include <Ext/House/Body.h>
+#include <Ext/Rules/Body.h>
 #include <Ext/Scenario/Body.h>
 #include <Ext/WeaponType/Body.h>
 #include <Ext/WarheadType/Body.h>
 #include <Utilities/Helpers.Alex.h>
 #include <Utilities/AresHelper.h>
 #include <Utilities/AresFunctions.h>
+#include <Utilities/Debug.h>
 #include <Misc/FlyingStrings.h>
+
+#include <BuildingClass.h>
+#include <MapClass.h>
 
 #pragma region GetTechnoType
 
@@ -844,6 +849,378 @@ DEFINE_HOOK(0x6298CC, ParasiteClass_AI_GrippleAnim, 0x5)
 
 #pragma region RadarDrawing
 
+namespace PhobosFogRadar
+{
+	struct RadarFogDebugStats
+	{
+		int Hits = 0;
+		int Applied = 0;
+		int QueryFailed = 0;
+		int Visible = 0;
+		int Explored = 0;
+		int Unknown = 0;
+		int FullRefreshHits = 0;
+		int DirtyRefreshHits = 0;
+		int LastReportFrame = -1;
+	};
+
+	static RadarFogDebugStats DebugStats;
+
+	static bool TryGetCellStateForHouse(HouseClass* const pHouse, const int cellIndex, HouseExt::PhobosFogCellState& state)
+	{
+		return HouseExt::ExtData::TryGetEffectivePhobosFogCellStateForHouse(pHouse, cellIndex, state);
+	}
+
+	static bool TryGetCellVisibleToHouse(HouseClass* const pHouse, const int cellIndex, bool& visible)
+	{
+		HouseExt::PhobosFogCellState state = HouseExt::PhobosFogCellState::Unknown;
+
+		if (!TryGetCellStateForHouse(pHouse, cellIndex, state))
+			return false;
+
+		visible = state == HouseExt::PhobosFogCellState::Visible;
+		return true;
+	}
+
+	static bool IsEligibleAlly(HouseClass* const pViewerHouse, HouseClass* const pHouse)
+	{
+		return pViewerHouse && pHouse && pHouse != pViewerHouse && !pHouse->Defeated && !pHouse->IsObserver()
+			&& pHouse->Type && !pHouse->Type->MultiplayPassive && pViewerHouse->IsAlliedWith(pHouse);
+	}
+
+	static bool IsCellVisibleToViewerOrAllies(HouseClass* const pViewerHouse, const int cellIndex, bool& querySucceeded)
+	{
+		querySucceeded = false;
+
+		bool visible = false;
+
+		if (!TryGetCellVisibleToHouse(pViewerHouse, cellIndex, visible))
+			return false;
+
+		querySucceeded = true;
+
+		if (visible)
+			return true;
+
+		for (auto const pHouse : HouseClass::Array)
+		{
+			if (IsEligibleAlly(pViewerHouse, pHouse)
+				&& TryGetCellVisibleToHouse(pHouse, cellIndex, visible) && visible)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	static bool TryGetCellIndex(const CellStruct& cell, int& cellIndex)
+	{
+		if (!MapClass::Instance.TryGetCellAt(cell))
+			return false;
+
+		cellIndex = MapClass::GetCellIndex(cell);
+		return cellIndex >= 0 && cellIndex < MapClass::MaxCells;
+	}
+
+	static const char* GetCellStateName(const HouseExt::PhobosFogCellState cellState)
+	{
+		switch (cellState)
+		{
+		case HouseExt::PhobosFogCellState::Visible:
+			return "Visible";
+		case HouseExt::PhobosFogCellState::Explored:
+			return "Explored";
+		case HouseExt::PhobosFogCellState::Unknown:
+		default:
+			return "Unknown";
+		}
+	}
+
+	static bool TryGetRadarCellStateForCurrentPlayerOrAllies(const int cellIndex, HouseExt::PhobosFogCellState& cellState)
+	{
+		const auto pViewerHouse = HouseClass::CurrentPlayer;
+
+		if (!pViewerHouse || pViewerHouse->IsObserver())
+			return false;
+
+		HouseExt::PhobosFogCellState state = HouseExt::PhobosFogCellState::Unknown;
+
+		if (!TryGetCellStateForHouse(pViewerHouse, cellIndex, state))
+			return false;
+
+		if (state == HouseExt::PhobosFogCellState::Visible)
+		{
+			cellState = HouseExt::PhobosFogCellState::Visible;
+			return true;
+		}
+
+		bool hasExplored = state == HouseExt::PhobosFogCellState::Explored;
+
+		for (auto const pHouse : HouseClass::Array)
+		{
+			if (!IsEligibleAlly(pViewerHouse, pHouse) || !TryGetCellStateForHouse(pHouse, cellIndex, state))
+				continue;
+
+			if (state == HouseExt::PhobosFogCellState::Visible)
+			{
+				cellState = HouseExt::PhobosFogCellState::Visible;
+				return true;
+			}
+
+			hasExplored = hasExplored || state == HouseExt::PhobosFogCellState::Explored;
+		}
+
+		cellState = hasExplored ? HouseExt::PhobosFogCellState::Explored : HouseExt::PhobosFogCellState::Unknown;
+		return true;
+	}
+
+	static bool IsRadarFogOverrideEnabled()
+	{
+		const auto pRulesExt = RulesExt::Global();
+		return pRulesExt && pRulesExt->PhobosFog_Enabled && pRulesExt->PhobosFog_OverrideRadarFog;
+	}
+
+	static bool IsRadarFogDebugEnabled()
+	{
+		const auto pRulesExt = RulesExt::Global();
+		return pRulesExt && pRulesExt->PhobosFog_Enabled && pRulesExt->PhobosFog_Debug && pRulesExt->PhobosFog_OverrideRadarFog;
+	}
+
+	static void UpdateRadarFogDebugStats(const char* const pPath, const int cellIndex, const bool querySucceeded, const HouseExt::PhobosFogCellState cellState, ColorStruct* const pColor)
+	{
+		if (!IsRadarFogDebugEnabled())
+			return;
+
+		++DebugStats.Hits;
+
+		if (pPath && *pPath == 'F')
+			++DebugStats.FullRefreshHits;
+		else if (pPath && *pPath == 'D')
+			++DebugStats.DirtyRefreshHits;
+
+		if (!querySucceeded)
+		{
+			++DebugStats.QueryFailed;
+		}
+		else
+		{
+			++DebugStats.Applied;
+
+			switch (cellState)
+			{
+			case HouseExt::PhobosFogCellState::Visible:
+				++DebugStats.Visible;
+				break;
+			case HouseExt::PhobosFogCellState::Explored:
+				++DebugStats.Explored;
+				break;
+			case HouseExt::PhobosFogCellState::Unknown:
+			default:
+				++DebugStats.Unknown;
+				break;
+			}
+		}
+
+		if (DebugStats.LastReportFrame >= 0 && Unsorted::CurrentFrame - DebugStats.LastReportFrame < 900)
+			return;
+
+		DebugStats.LastReportFrame = Unsorted::CurrentFrame;
+		Debug::Log("[PhobosFogRadar] Frame=%d Hits=%d Applied=%d QueryFailed=%d Visible=%d Explored=%d Unknown=%d Full=%d Dirty=%d LastPath=%s LastCell=%d LastState=%s LastColor=%d,%d,%d\n",
+			Unsorted::CurrentFrame,
+			DebugStats.Hits,
+			DebugStats.Applied,
+			DebugStats.QueryFailed,
+			DebugStats.Visible,
+			DebugStats.Explored,
+			DebugStats.Unknown,
+			DebugStats.FullRefreshHits,
+			DebugStats.DirtyRefreshHits,
+			pPath ? pPath : "<null>",
+			cellIndex,
+			querySucceeded ? GetCellStateName(cellState) : "<query-failed>",
+			pColor ? static_cast<int>(pColor->R) : -1,
+			pColor ? static_cast<int>(pColor->G) : -1,
+			pColor ? static_cast<int>(pColor->B) : -1);
+
+		DebugStats.Hits = 0;
+		DebugStats.Applied = 0;
+		DebugStats.QueryFailed = 0;
+		DebugStats.Visible = 0;
+		DebugStats.Explored = 0;
+		DebugStats.Unknown = 0;
+		DebugStats.FullRefreshHits = 0;
+		DebugStats.DirtyRefreshHits = 0;
+	}
+
+	static void ApplyRadarFogColor(ColorStruct* const pColor, const HouseExt::PhobosFogCellState cellState)
+	{
+		if (!pColor)
+			return;
+
+		switch (cellState)
+		{
+		case HouseExt::PhobosFogCellState::Visible:
+			return;
+		case HouseExt::PhobosFogCellState::Explored:
+			pColor->R = static_cast<BYTE>(pColor->R / 2);
+			pColor->G = static_cast<BYTE>(pColor->G / 2);
+			pColor->B = static_cast<BYTE>(pColor->B / 2);
+			return;
+		case HouseExt::PhobosFogCellState::Unknown:
+		default:
+			pColor->R = 0;
+			pColor->G = 0;
+			pColor->B = 0;
+			return;
+		}
+	}
+
+	static void ApplyRadarFogColors(const char* const pPath, const int cellIndex, ColorStruct* const pColorA, ColorStruct* const pColorB)
+	{
+		if (!IsRadarFogOverrideEnabled())
+			return;
+
+		HouseExt::PhobosFogCellState cellState = HouseExt::PhobosFogCellState::Unknown;
+
+		const bool querySucceeded = TryGetRadarCellStateForCurrentPlayerOrAllies(cellIndex, cellState);
+		if (!querySucceeded)
+		{
+			ApplyRadarFogColor(pColorA, HouseExt::PhobosFogCellState::Unknown);
+			ApplyRadarFogColor(pColorB, HouseExt::PhobosFogCellState::Unknown);
+			UpdateRadarFogDebugStats(pPath, cellIndex, false, cellState, pColorA);
+			return;
+		}
+
+		ApplyRadarFogColor(pColorA, cellState);
+		ApplyRadarFogColor(pColorB, cellState);
+		UpdateRadarFogDebugStats(pPath, cellIndex, true, cellState, pColorA);
+	}
+
+	static void ApplyRadarFogColors(const char* const pPath, CellClass* const pCell, ColorStruct* const pColorA, ColorStruct* const pColorB)
+	{
+		if (!pCell)
+			return;
+
+		int cellIndex = -1;
+
+		if (!TryGetCellIndex(pCell->MapCoords, cellIndex))
+			return;
+
+		ApplyRadarFogColors(pPath, cellIndex, pColorA, pColorB);
+	}
+
+	static void ApplyRadarFogColors(const char* const pPath, const CellStruct& cell, ColorStruct* const pColorA, ColorStruct* const pColorB)
+	{
+		int cellIndex = -1;
+
+		if (!TryGetCellIndex(cell, cellIndex))
+			return;
+
+		ApplyRadarFogColors(pPath, cellIndex, pColorA, pColorB);
+	}
+
+	static bool IsCellVisibleToViewerOrAllies(HouseClass* const pViewerHouse, const CellStruct& cell, bool& querySucceeded)
+	{
+		querySucceeded = false;
+
+		int cellIndex = -1;
+
+		if (!TryGetCellIndex(cell, cellIndex))
+			return false;
+
+		return IsCellVisibleToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+	}
+
+	static bool IsBuildingVisibleToViewerOrAllies(BuildingClass* const pBuilding, HouseClass* const pViewerHouse, bool& querySucceeded)
+	{
+		querySucceeded = false;
+
+		if (!pBuilding || !pBuilding->Type || !pViewerHouse)
+			return false;
+
+		const auto pFoundation = pBuilding->GetFoundationData(false);
+
+		if (!pFoundation)
+			return false;
+
+		const auto baseCell = pBuilding->GetMapCoords();
+		const CellStruct foundationEnd = { 0x7FFF, 0x7FFF };
+
+		for (auto pCellOffset = pFoundation; *pCellOffset != foundationEnd; ++pCellOffset)
+		{
+			const auto cell = baseCell + *pCellOffset;
+
+			bool cellQuerySucceeded = false;
+			const bool visible = IsCellVisibleToViewerOrAllies(pViewerHouse, cell, cellQuerySucceeded);
+
+			if (!cellQuerySucceeded)
+			{
+				querySucceeded = false;
+				return false;
+			}
+
+			querySucceeded = true;
+
+			if (visible)
+				return true;
+		}
+
+		return false;
+	}
+
+	static bool TryGetEnemyObjectVisibility(TechnoClass* const pTechno, bool& visible)
+	{
+		visible = false;
+
+		const auto pRulesExt = RulesExt::Global();
+
+		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_HideRadarObjects)
+			return false;
+
+		const auto pViewerHouse = HouseClass::CurrentPlayer;
+
+		if (!pViewerHouse || pViewerHouse->IsObserver() || !pTechno || !pTechno->Owner)
+			return false;
+
+		if (pViewerHouse->IsAlliedWith(pTechno->Owner))
+			return false;
+
+		bool querySucceeded = false;
+		visible = [pTechno, pViewerHouse, &querySucceeded]()
+		{
+			if (const auto pBuilding = abstract_cast<BuildingClass*, true>(pTechno))
+				return IsBuildingVisibleToViewerOrAllies(pBuilding, pViewerHouse, querySucceeded);
+
+			return IsCellVisibleToViewerOrAllies(pViewerHouse, pTechno->GetMapCoords(), querySucceeded);
+		}();
+
+		return querySucceeded;
+	}
+}
+
+DEFINE_HOOK(0x654F9E, RadarClass_CellColor_PhobosFog_FullRefresh, 0x5)
+{
+	GET(CellClass*, pCell, EBP);
+	LEA_STACK(ColorStruct*, pColorA, 0x10);
+	LEA_STACK(ColorStruct*, pColorB, 0x14);
+
+	PhobosFogRadar::ApplyRadarFogColors("Full", pCell, pColorA, pColorB);
+
+	return 0;
+}
+
+DEFINE_HOOK(0x6553A3, RadarClass_CellColor_PhobosFog_DirtyRefresh, 0x6)
+{
+	LEA_STACK(ColorStruct*, pColorA, 0x10);
+	LEA_STACK(ColorStruct*, pColorB, 0x14);
+	REF_STACK(CellStruct, cell, 0x18);
+
+	PhobosFogRadar::ApplyRadarFogColors("Dirty", cell, pColorA, pColorB);
+
+	return 0;
+}
+
 DEFINE_HOOK(0x655DDD, RadarClass_ProcessPoint_RadarInvisible, 0x6)
 {
 	enum { Invisible = 0x655E66, GoOtherChecks = 0x655E19 };
@@ -851,7 +1228,13 @@ DEFINE_HOOK(0x655DDD, RadarClass_ProcessPoint_RadarInvisible, 0x6)
 	GET_STACK(const bool, isInShrouded, STACK_OFFSET(0x40, 0x4));
 	GET(TechnoClass*, pTechno, EBP);
 
-	if (isInShrouded && !pTechno->Owner->IsControlledByCurrentPlayer())
+	bool visibleByPhobosFog = false;
+	const bool phobosFogQuerySucceeded = PhobosFogRadar::TryGetEnemyObjectVisibility(pTechno, visibleByPhobosFog);
+
+	if (phobosFogQuerySucceeded && !visibleByPhobosFog)
+		return Invisible;
+
+	if (!phobosFogQuerySucceeded && isInShrouded && !pTechno->Owner->IsControlledByCurrentPlayer())
 		return Invisible;
 
 	auto const pTypeExt = TechnoExt::ExtMap.Find(pTechno)->TypeExtData;

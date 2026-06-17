@@ -1,5 +1,6 @@
 #include "Body.h"
 
+#include <Ext/House/Body.h>
 #include <Ext/Rules/Body.h>
 
 namespace TerrainTypeTemp
@@ -7,6 +8,59 @@ namespace TerrainTypeTemp
 	TerrainTypeClass* pCurrentType = nullptr;
 	TerrainTypeExt::ExtData* pCurrentExt = nullptr;
 	double PriorHealthRatio = 0.0;
+}
+
+namespace PhobosFogTerrain
+{
+	static bool IsCellVisibleToViewerOrAllies(HouseClass* const pViewerHouse, const int cellIndex, bool& querySucceeded)
+	{
+		return HouseExt::ExtData::IsPhobosFogCellHardVisibleToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+	}
+
+	static bool TryGetTerrainCellIndex(TerrainClass* const pTerrain, int& cellIndex)
+	{
+		if (!pTerrain)
+			return false;
+
+		const auto cell = pTerrain->GetMapCoords();
+
+		if (!MapClass::Instance.TryGetCellAt(cell))
+			return false;
+
+		cellIndex = MapClass::GetCellIndex(cell);
+		return cellIndex >= 0 && cellIndex < MapClass::MaxCells;
+	}
+
+	static bool IsTiberiumSpawner(TerrainClass* const pTerrain)
+	{
+		return pTerrain && pTerrain->Type && pTerrain->Type->SpawnsTiberium;
+	}
+
+	static bool ShouldHide(TerrainClass* const pTerrain)
+	{
+		const auto pRulesExt = RulesExt::Global();
+
+		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_HideTiberiumSpawners
+			|| !IsTiberiumSpawner(pTerrain))
+		{
+			return false;
+		}
+
+		const auto pViewerHouse = HouseClass::CurrentPlayer;
+
+		if (!pViewerHouse || pViewerHouse->IsObserver())
+			return false;
+
+		int cellIndex = -1;
+
+		if (!TryGetTerrainCellIndex(pTerrain, cellIndex))
+			return false;
+
+		bool querySucceeded = false;
+		const bool visible = IsCellVisibleToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+
+		return querySucceeded && !visible;
+	}
 }
 
 DEFINE_HOOK(0x71C84D, TerrainClass_AI_Animated, 0x6)
@@ -123,7 +177,12 @@ DEFINE_HOOK(0x71C1FE, TerrainClass_Draw_PickFrame, 0x6)
 
 DEFINE_HOOK(0x71C2BC, TerrainClass_Draw_Palette, 0x6)
 {
+	enum { SkipDraw = 0x71C353 };
+
 	GET(TerrainClass*, pThis, ESI);
+
+	if (PhobosFogTerrain::ShouldHide(pThis))
+		return SkipDraw;
 
 	auto const pCell = pThis->GetCell();
 	const int wallOwnerIndex = pCell->WallOwnerIndex;

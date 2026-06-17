@@ -1,11 +1,17 @@
 #include "Body.h"
 
+#include <algorithm>
+#include <CellClass.h>
 #include <EventClass.h>
 
 #include <Ext/Anim/Body.h>
+#include <Ext/House/Body.h>
+#include <Ext/Rules/Body.h>
 #include <Ext/WeaponType/Body.h>
 #include <Ext/BulletType/Body.h>
 #include <RulesClass.h>
+#include <Unsorted.h>
+#include <Utilities/Debug.h>
 
 #pragma region Mission_Attack
 
@@ -1177,6 +1183,108 @@ static __forceinline bool CheckSpyPlaneCameraCount(AircraftClass* pThis)
 	return true;
 }
 
+namespace
+{
+	constexpr int PhobosFogSpyPlaneRevealSyncInterval = 3;
+
+	struct PhobosFogSpyPlaneRevealSyncSlot
+	{
+		AircraftClass* Plane;
+		int LastFrame;
+		int ThrottleSkipped;
+	};
+
+	PhobosFogSpyPlaneRevealSyncSlot PhobosFogSpyPlaneRevealSyncSlots[16] {};
+
+	bool ShouldSyncPhobosFogSpyPlaneReveal(AircraftClass* pThis, int& throttleSkipped)
+	{
+		const int currentFrame = Unsorted::CurrentFrame;
+		auto pReplacementSlot = &PhobosFogSpyPlaneRevealSyncSlots[0];
+		throttleSkipped = 0;
+
+		for (auto& slot : PhobosFogSpyPlaneRevealSyncSlots)
+		{
+			if (slot.Plane == pThis)
+			{
+				if (currentFrame >= slot.LastFrame && currentFrame - slot.LastFrame < PhobosFogSpyPlaneRevealSyncInterval)
+				{
+					++slot.ThrottleSkipped;
+					return false;
+				}
+
+				throttleSkipped = slot.ThrottleSkipped;
+				slot.ThrottleSkipped = 0;
+				slot.LastFrame = currentFrame;
+				return true;
+			}
+
+			if (!slot.Plane || slot.LastFrame < pReplacementSlot->LastFrame)
+				pReplacementSlot = &slot;
+		}
+
+		pReplacementSlot->Plane = pThis;
+		pReplacementSlot->LastFrame = currentFrame;
+		pReplacementSlot->ThrottleSkipped = 0;
+		return true;
+	}
+}
+
+static void MarkPhobosFogSpyPlaneRevealVisible(AircraftClass* pThis, const char* phase)
+{
+	auto const pRulesExt = RulesExt::Global();
+
+	if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pThis || !pThis->Owner)
+		return;
+
+	int throttleSkipped = 0;
+	if (!ShouldSyncPhobosFogSpyPlaneReveal(pThis, throttleSkipped))
+		return;
+
+	if (auto const pHouseExt = HouseExt::ExtMap.TryFind(pThis->Owner))
+	{
+		const int holdFrames = pRulesExt->ResolvePhobosFogRevealVisibleHoldFrames(RulesExt::ExtData::PhobosFogRevealHoldSource::SpyPlaneReveal);
+		const int visibleUntilFrame = Unsorted::CurrentFrame + holdFrames;
+		const int rawRadius = pThis->LastSightHeight + 3;
+		const auto spread = static_cast<size_t>(std::clamp(rawRadius, 3, 11));
+		HouseExt::PhobosFogRevealAreaStats stats {};
+		const auto center = CellClass::Coord2Cell(pThis->Location);
+		const auto affectedCells = holdFrames > 0
+			? pHouseExt->MarkPhobosFogCellSpreadVisibleUntil(center, spread, visibleUntilFrame, pRulesExt->PhobosFog_Debug ? &stats : nullptr)
+			: pHouseExt->MarkPhobosFogCellSpreadExplored(center, spread);
+
+		if (pRulesExt->PhobosFog_Debug)
+		{
+			const int width = holdFrames > 0 && stats.AffectedCells ? stats.MaxCellX - stats.MinCellX + 1 : 0;
+			const int height = holdFrames > 0 && stats.AffectedCells ? stats.MaxCellY - stats.MinCellY + 1 : 0;
+			Debug::Log("[PhobosFog][SpyPlaneReveal] Frame=%d Aircraft=%p Owner=%s Phase=%s Center=(%d,%d) RawRadius=%d Spread=%u Hold=%d Until=%d Affected=%u Invalid=%u UnknownToVisible=%u ExploredToVisible=%u VisibleExtended=%u SkippedEnough=%u OutOfBounds=%u ThrottleSkipped=%d Bounds=(%d,%d)-(%d,%d) BoundsSize=%dx%d\n",
+				Unsorted::CurrentFrame,
+				static_cast<void*>(pThis),
+				pThis->Owner ? pThis->Owner->PlainName : "<null>",
+				phase ? phase : "<unknown>",
+				center.X,
+				center.Y,
+				rawRadius,
+				static_cast<unsigned int>(spread),
+				holdFrames,
+				visibleUntilFrame,
+				static_cast<unsigned int>(holdFrames > 0 ? stats.AffectedCells : affectedCells),
+				static_cast<unsigned int>(stats.InvalidCells),
+				static_cast<unsigned int>(stats.UnknownPromoted),
+				static_cast<unsigned int>(stats.ExploredPromoted),
+				static_cast<unsigned int>(stats.VisibleExtended),
+				static_cast<unsigned int>(stats.AlreadyVisibleEnoughSkipped),
+				static_cast<unsigned int>(stats.OutOfBoundsSkipped),
+				throttleSkipped,
+				holdFrames > 0 && stats.AffectedCells ? stats.MinCellX : 0,
+				holdFrames > 0 && stats.AffectedCells ? stats.MinCellY : 0,
+				holdFrames > 0 && stats.AffectedCells ? stats.MaxCellX : 0,
+				holdFrames > 0 && stats.AffectedCells ? stats.MaxCellY : 0,
+				width,
+				height);
+		}
+	}
+}
+
 DEFINE_HOOK(0x415666, AircraftClass_Mission_SpyPlaneApproach_MaxCount, 0x6)
 {
 	enum { Skip = 0x41570C };
@@ -1185,6 +1293,8 @@ DEFINE_HOOK(0x415666, AircraftClass_Mission_SpyPlaneApproach_MaxCount, 0x6)
 
 	if (!CheckSpyPlaneCameraCount(pThis))
 		return Skip;
+
+	MarkPhobosFogSpyPlaneRevealVisible(pThis, "Approach");
 
 	return 0;
 }
@@ -1197,6 +1307,8 @@ DEFINE_HOOK(0x4157EB, AircraftClass_Mission_SpyPlaneOverfly_MaxCount, 0x6)
 
 	if (!CheckSpyPlaneCameraCount(pThis))
 		return Skip;
+
+	MarkPhobosFogSpyPlaneRevealVisible(pThis, "Overfly");
 
 	return 0;
 }

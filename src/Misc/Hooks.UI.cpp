@@ -2,6 +2,7 @@
 #include <ThemeClass.h>
 
 #include <Ext/House/Body.h>
+#include <Ext/Rules/Body.h>
 #include <Ext/Side/Body.h>
 #include <Ext/Scenario/Body.h>
 #include <Ext/TechnoType/Body.h>
@@ -11,7 +12,18 @@
 
 #include <New/Entity/BannerClass.h>
 
+#include <Surface.h>
+
 #include <Utilities/Debug.h>
+
+namespace PhobosFogTacticalDraw
+{
+	static void DrawOriginalRadialIndicators(void* const pThis)
+	{
+		using DrawRadialIndicatorsFunction = void(__thiscall*)(void*);
+		reinterpret_cast<DrawRadialIndicatorsFunction>(0x6DBE20)(pThis);
+	}
+}
 
 DEFINE_HOOK(0x777C41, UI_ApplyAppIcon, 0x9)
 {
@@ -263,10 +275,15 @@ DEFINE_HOOK(0x6A86ED, StripClass_OperatorLessThan_SortCameoByNameTechno, 0x5)
 	return wcscmp(pLeft->UIName, pRight->UIName) <= 0 ? rTrue : rFalse;
 }
 
-DEFINE_HOOK(0x6D4684, TacticalClass_Draw_FlyingStrings, 0x6)
+DEFINE_HOOK(0x6D467F, TacticalClass_Draw_PhobosFogPreRadialIndicatorAndFlyingStrings, 0xB)
 {
+	const auto pThis = R->ECX<void*>();
+
+	PhobosFogTacticalDraw::DrawOriginalRadialIndicators(pThis);
 	FlyingStrings::UpdateAll();
-	return 0;
+	R->EDX(*reinterpret_cast<DWORD*>(0x886FA0));
+
+	return 0x6D468A;
 }
 
 DEFINE_HOOK(0x456776, BuildingClass_DrawRadialIndicator_Visibility, 0x6)

@@ -1,4 +1,26 @@
 #include <Ext/TechnoType/Body.h>
+#include <Ext/House/Body.h>
+#include <Ext/Rules/Body.h>
+#include <Unsorted.h>
+
+static void MarkPhobosFogCrateFullMapReveal(HouseClass* pHouse)
+{
+	auto const pRulesExt = RulesExt::Global();
+
+	if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_SyncFullMapReveal || !pHouse)
+		return;
+
+	if (auto const pHouseExt = HouseExt::ExtMap.TryFind(pHouse))
+	{
+		if (pRulesExt->PhobosFog_FullMapReveal_MarkExplored)
+			pHouseExt->MarkAllPhobosFogCellsExplored();
+
+		const int holdFrames = pRulesExt->ResolvePhobosFogRevealVisibleHoldFrames(RulesExt::ExtData::PhobosFogRevealHoldSource::FullMapReveal);
+
+		if (holdFrames > 0)
+			pHouseExt->ExtendPhobosFogFullMapVisibleUntil(Unsorted::CurrentFrame + holdFrames);
+	}
+}
 
 DEFINE_HOOK(0x56BD8B, MapClass_PlaceRandomCrate_Sampling, 0x5)
 {
@@ -103,6 +125,7 @@ DEFINE_HOOK(0x481F9D, CellClass_SpringCrate_RevealMap, 0x8)
 		pOwner = HouseClass::CurrentPlayer;
 
 	MapClass::Instance.Reveal(pOwner);
+	MarkPhobosFogCrateFullMapReveal(pOwner);
 
 	return 0x481FC8;
 }

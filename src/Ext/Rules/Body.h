@@ -333,6 +333,74 @@ public:
     
 		Valueable<bool> CylinderRangefinding;
 
+		Valueable<bool> PhobosFog_Enabled;
+		Valueable<bool> PhobosFog_Debug;
+		Valueable<bool> PhobosFog_Perf_Enabled;
+		Valueable<int> PhobosFog_Perf_IntervalFrames;
+		Valueable<bool> PhobosFog_DrawExploredOverlay;
+		Valueable<int> PhobosFog_ExploredOverlayAlpha;
+		Valueable<int> PhobosFog_ExploredOverlayCellWidth;
+		Valueable<int> PhobosFog_ExploredOverlayCellHeight;
+		Valueable<int> PhobosFog_ExploredOverlayPaddingX;
+		Valueable<int> PhobosFog_ExploredOverlayPaddingY;
+		Valueable<int> PhobosFog_ExploredOverlayViewportPaddingCells;
+		Valueable<bool> PhobosFog_ExploredOverlaySoftEdge;
+		Valueable<int> PhobosFog_ExploredOverlaySoftEdgeAlpha;
+		Valueable<int> PhobosFog_ExploredOverlaySoftEdgeVisibleAlpha;
+		Valueable<int> PhobosFog_ExploredOverlaySoftEdgeUnknownAlpha;
+		Valueable<int> PhobosFog_ExploredOverlayFadeInFrames;
+		Valueable<bool> PhobosFog_ExploredOverlayUnknownMerge;
+		Valueable<int> PhobosFog_ExploredOverlayUnknownMergeAlpha;
+		Valueable<int> PhobosFog_ExploredOverlayUnknownMergePadding;
+		Valueable<int> PhobosFog_ExploredOverlaySoftEdgePadding;
+		Valueable<int> PhobosFog_ExploredOverlayAlphaVariance;
+		Valueable<int> PhobosFog_ExploredOverlayFrontierMode;
+		Valueable<int> PhobosFog_ExploredOverlayShape;
+		Valueable<int> PhobosFog_ExploredOverlayDiamondBandHeight;
+		Valueable<int> PhobosFog_ExploredOverlayMaxDrawRects;
+		Valueable<bool> PhobosFog_ExploredOverlayHeightAware;
+		Valueable<int> PhobosFog_ExploredOverlayHeightYOffset;
+		Valueable<bool> PhobosFog_ExploredOverlayCliffCover;
+		Valueable<int> PhobosFog_ExploredOverlayCliffCoverHeight;
+		Valueable<int> PhobosFog_ExploredOverlayCliffCoverAlpha;
+		Valueable<bool> PhobosFog_HideBuildings;
+		Valueable<bool> PhobosFog_HideEnemyFoot;
+		Valueable<bool> PhobosFog_HideHoverCursor;
+		Valueable<bool> PhobosFog_HideHoverTooltip;
+		Valueable<bool> PhobosFog_HideHoverHealthBar;
+		Valueable<bool> PhobosFog_GateHiddenObjectCommands;
+		Valueable<bool> PhobosFog_GateAutoTargets;
+		Valueable<bool> PhobosFog_GateAutoFire;
+		Valueable<bool> PhobosFog_GateForceFireCells;
+		Valueable<bool> PhobosFog_HideRadarObjects;
+		Valueable<bool> PhobosFog_OverrideRadarFog;
+		Valueable<bool> PhobosFog_HideTiberiumSpawners;
+		Valueable<bool> PhobosFog_HideWorldAnim;
+		Valueable<bool> PhobosFog_HideWorldParticles;
+
+		enum class PhobosFogRevealHoldSource
+		{
+			WarheadAreaReveal,
+			WarheadFullMapReveal,
+			SpyPlaneReveal,
+			FullMapReveal,
+			SpySatelliteDeactivate
+		};
+
+		int ResolvePhobosFogRevealVisibleHoldFrames(PhobosFogRevealHoldSource source, int warheadOverride = -1) const;
+
+		Valueable<bool> PhobosFog_SyncSpySatellite;
+		Valueable<bool> PhobosFog_SpySatellite_MarkExplored;
+		Valueable<bool> PhobosFog_SpySatellite_PersistentVisible;
+		Valueable<int> PhobosFog_SpySatellite_DeactivateHoldFrames;
+		Valueable<bool> PhobosFog_SyncFullMapReveal;
+		Valueable<bool> PhobosFog_FullMapReveal_MarkExplored;
+		Valueable<int> PhobosFog_FullMapReveal_VisibleHoldFrames;
+		Valueable<int> PhobosFog_WarheadReveal_VisibleHoldFrames;
+		Valueable<int> PhobosFog_SpyPlaneReveal_VisibleHoldFrames;
+		Valueable<int> PhobosFog_RevealSources_VisibleHoldFrames;
+		Valueable<int> PhobosFog_UpdateInterval;
+
 		Valueable<int> PenetratesTransport_Level;
 
 		Valueable<bool> UnitsUnsellable;
@@ -634,6 +702,62 @@ public:
 			, DefaultToGuardArea { false }
 
 			, CylinderRangefinding { false }
+
+			, PhobosFog_Enabled { false }
+			, PhobosFog_Debug { false }
+			, PhobosFog_Perf_Enabled { false }
+			, PhobosFog_Perf_IntervalFrames { 300 }
+			, PhobosFog_DrawExploredOverlay { false }
+			, PhobosFog_ExploredOverlayAlpha { 96 }
+			, PhobosFog_ExploredOverlayCellWidth { 68 }
+			, PhobosFog_ExploredOverlayCellHeight { 38 }
+			, PhobosFog_ExploredOverlayPaddingX { 4 }
+			, PhobosFog_ExploredOverlayPaddingY { 4 }
+			, PhobosFog_ExploredOverlayViewportPaddingCells { 2 }
+			, PhobosFog_ExploredOverlaySoftEdge { true }
+			, PhobosFog_ExploredOverlaySoftEdgeAlpha { 20 }
+			, PhobosFog_ExploredOverlaySoftEdgeVisibleAlpha { 20 }
+			, PhobosFog_ExploredOverlaySoftEdgeUnknownAlpha { 0 }
+			, PhobosFog_ExploredOverlayFadeInFrames { 6 }
+			, PhobosFog_ExploredOverlayUnknownMerge { true }
+			, PhobosFog_ExploredOverlayUnknownMergeAlpha { 36 }
+			, PhobosFog_ExploredOverlayUnknownMergePadding { 18 }
+			, PhobosFog_ExploredOverlaySoftEdgePadding { 10 }
+			, PhobosFog_ExploredOverlayAlphaVariance { 4 }
+			, PhobosFog_ExploredOverlayFrontierMode { 8 }
+			, PhobosFog_ExploredOverlayShape { 1 }
+			, PhobosFog_ExploredOverlayDiamondBandHeight { 3 }
+			, PhobosFog_ExploredOverlayMaxDrawRects { 24000 }
+			, PhobosFog_ExploredOverlayHeightAware { false }
+			, PhobosFog_ExploredOverlayHeightYOffset { 0 }
+			, PhobosFog_ExploredOverlayCliffCover { false }
+			, PhobosFog_ExploredOverlayCliffCoverHeight { 48 }
+			, PhobosFog_ExploredOverlayCliffCoverAlpha { 96 }
+			, PhobosFog_HideBuildings { false }
+			, PhobosFog_HideEnemyFoot { false }
+			, PhobosFog_HideHoverCursor { false }
+			, PhobosFog_HideHoverTooltip { false }
+			, PhobosFog_HideHoverHealthBar { false }
+			, PhobosFog_GateHiddenObjectCommands { false }
+			, PhobosFog_GateAutoTargets { false }
+			, PhobosFog_GateAutoFire { false }
+			, PhobosFog_GateForceFireCells { false }
+			, PhobosFog_HideRadarObjects { false }
+			, PhobosFog_OverrideRadarFog { false }
+			, PhobosFog_HideTiberiumSpawners { false }
+			, PhobosFog_HideWorldAnim { false }
+			, PhobosFog_HideWorldParticles { false }
+			, PhobosFog_SyncSpySatellite { false }
+			, PhobosFog_SpySatellite_MarkExplored { true }
+			, PhobosFog_SpySatellite_PersistentVisible { true }
+			, PhobosFog_SpySatellite_DeactivateHoldFrames { 0 }
+			, PhobosFog_SyncFullMapReveal { false }
+			, PhobosFog_FullMapReveal_MarkExplored { true }
+			, PhobosFog_FullMapReveal_VisibleHoldFrames { -1 }
+			, PhobosFog_WarheadReveal_VisibleHoldFrames { -1 }
+			, PhobosFog_SpyPlaneReveal_VisibleHoldFrames { -1 }
+			, PhobosFog_RevealSources_VisibleHoldFrames { 0 }
+			, PhobosFog_UpdateInterval { 3 }
 
 			, PenetratesTransport_Level { 10 }
 

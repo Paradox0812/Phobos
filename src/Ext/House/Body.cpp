@@ -1,7 +1,17 @@
 #include "Body.h"
 
+#include <MapClass.h>
+
+#include <Ext/Rules/Body.h>
 #include <Ext/SWType/Body.h>
 #include <Ext/Techno/Body.h>
+
+#include <Helpers/Iterators.h>
+#include <Utilities/Debug.h>
+#include <Unsorted.h>
+
+#include <algorithm>
+#include <utility>
 
 //Static init
 
@@ -11,6 +21,36 @@ std::vector<int> HouseExt::AIProduction_CreationFrames;
 std::vector<int> HouseExt::AIProduction_Values;
 std::vector<int> HouseExt::AIProduction_BestChoices;
 std::vector<int> HouseExt::AIProduction_BestChoicesNaval;
+bool HouseExt::PhobosFog_ForceNextRefresh = false;
+
+namespace
+{
+	constexpr unsigned int PhobosFogPayloadMagic = 0x474F4650u; // PFOG
+	constexpr unsigned int PhobosFogPayloadVersion = 1u;
+
+	unsigned int GetPhobosFogExploredPayloadByteCount(unsigned int cellCount)
+	{
+		return (cellCount + 7u) / 8u;
+	}
+
+	bool SkipPhobosFogPayloadBytes(PhobosStreamReader& Stm, unsigned int byteCount)
+	{
+		unsigned char buffer[256] {};
+		auto remaining = byteCount;
+
+		while (remaining > 0u)
+		{
+			const auto chunk = std::min<unsigned int>(remaining, sizeof(buffer));
+
+			if (!Stm.Read(buffer, chunk))
+				return false;
+
+			remaining -= chunk;
+		}
+
+		return true;
+	}
+}
 
 // Based on Ares' rewrite of 0x4FEA60 for 100 unit bugfix.
 void HouseExt::ExtData::UpdateVehicleProduction()
@@ -719,12 +759,36 @@ void HouseExt::ExtData::LoadFromStream(PhobosStreamReader& Stm)
 {
 	Extension<HouseClass>::LoadFromStream(Stm);
 	this->Serialize(Stm);
+
+	std::vector<PhobosFogCellState> loadedPhobosFogCellStates;
+	bool phobosFogPayloadFound = false;
+
+	if (!this->LoadPhobosFogExploredPayload(Stm, loadedPhobosFogCellStates, phobosFogPayloadFound))
+		return;
+
+	this->PhobosFog_CellStates.clear();
+	this->ResetPhobosFogRuntimeStateOnly(true);
+
+	if (phobosFogPayloadFound && loadedPhobosFogCellStates.size() == static_cast<size_t>(MapClass::MaxCells))
+	{
+		this->PhobosFog_CellStates = std::move(loadedPhobosFogCellStates);
+	}
+	else
+	{
+		this->PhobosFog_CellStates.assign(static_cast<size_t>(MapClass::MaxCells), PhobosFogCellState::Unknown);
+	}
+
+	this->PhobosFog_LastVisibleFrames.assign(static_cast<size_t>(MapClass::MaxCells), 0);
+	this->TouchPhobosFogStateVersion(PhobosFogStateTouchReason::Reset);
+	this->TouchPhobosFogOverlayEffectiveVersion();
+	HouseExt::RequestPhobosFogForceRefresh();
 }
 
 void HouseExt::ExtData::SaveToStream(PhobosStreamWriter& Stm)
 {
 	Extension<HouseClass>::SaveToStream(Stm);
 	this->Serialize(Stm);
+	this->SavePhobosFogExploredPayload(Stm);
 }
 
 bool HouseExt::LoadGlobals(PhobosStreamReader& Stm)
@@ -737,6 +801,855 @@ bool HouseExt::SaveGlobals(PhobosStreamWriter& Stm)
 {
 	return Stm
 		.Success();
+}
+
+void HouseExt::RequestPhobosFogForceRefresh()
+{
+	HouseExt::PhobosFog_ForceNextRefresh = true;
+}
+
+bool HouseExt::ConsumePhobosFogForceRefresh()
+{
+	const bool result = HouseExt::PhobosFog_ForceNextRefresh;
+	HouseExt::PhobosFog_ForceNextRefresh = false;
+
+	return result;
+}
+
+void HouseExt::ExtData::ResetPhobosFogState()
+{
+	this->PhobosFog_CellStates.clear();
+	this->ResetPhobosFogRuntimeStateOnly(false);
+	this->TouchPhobosFogStateVersion(PhobosFogStateTouchReason::Reset);
+	this->TouchPhobosFogOverlayEffectiveVersion();
+}
+
+void HouseExt::ExtData::ResetPhobosFogRuntimeStateOnly(bool initializeSpySatEdgeState)
+{
+	this->PhobosFog_LastVisibleFrames.clear();
+	this->PhobosFog_FullMapVisibleUntilFrame = 0;
+	this->PhobosFog_LastSpySatActive = initializeSpySatEdgeState && this->OwnerObject()
+		? this->OwnerObject()->SpySatActive
+		: false;
+	this->PhobosFog_LastFullMapHardVisible = initializeSpySatEdgeState
+		? this->IsPhobosFogFullMapHardVisible()
+		: false;
+	this->AbortPhobosFogOverlayEffectiveBatch();
+	this->PhobosFog_OverlayEffectiveBatchCellStamps.clear();
+	this->PhobosFog_OverlayEffectiveBatchStamp = 1;
+	this->PhobosFog_StateVersionTouchCount = 0;
+	for (auto& reasonCount : this->PhobosFog_StateVersionTouchReasons)
+		reasonCount = 0ULL;
+	this->PhobosFog_OverlayEffectiveTouchCount = 0;
+	this->ResetPhobosFogDebugRefreshStats(false);
+}
+
+bool HouseExt::ExtData::LoadPhobosFogExploredPayload(
+	PhobosStreamReader& Stm,
+	std::vector<PhobosFogCellState>& cellStates,
+	bool& payloadFound) const
+{
+	payloadFound = false;
+	cellStates.clear();
+
+	if (!Stm.HasRemainingBytes(sizeof(unsigned int)))
+		return true;
+
+	unsigned int magic = 0u;
+
+	if (!Stm.TryPeekUInt32(magic) || magic != PhobosFogPayloadMagic)
+		return true;
+
+	payloadFound = true;
+
+	unsigned int version = 0u;
+	unsigned int cellCount = 0u;
+	unsigned int byteCount = 0u;
+
+	if (!Stm.Load(magic)
+		|| !Stm.Load(version)
+		|| !Stm.Load(cellCount)
+		|| !Stm.Load(byteCount))
+	{
+		return false;
+	}
+
+	if (!Stm.HasRemainingBytes(byteCount))
+		return false;
+
+	const auto expectedByteCount = GetPhobosFogExploredPayloadByteCount(cellCount);
+	const bool canRestore = version == PhobosFogPayloadVersion
+		&& cellCount == static_cast<unsigned int>(MapClass::MaxCells)
+		&& byteCount == expectedByteCount;
+
+	if (!canRestore)
+		return SkipPhobosFogPayloadBytes(Stm, byteCount);
+
+	std::vector<unsigned char> bitset(byteCount);
+
+	if (byteCount > 0u && !Stm.Read(bitset.data(), byteCount))
+		return false;
+
+	cellStates.assign(static_cast<size_t>(cellCount), PhobosFogCellState::Unknown);
+
+	for (unsigned int cellIndex = 0; cellIndex < cellCount; ++cellIndex)
+	{
+		const auto byte = bitset[cellIndex / 8u];
+		const auto mask = static_cast<unsigned char>(1u << (cellIndex % 8u));
+
+		if ((byte & mask) != 0)
+			cellStates[cellIndex] = PhobosFogCellState::Explored;
+	}
+
+	return true;
+}
+
+void HouseExt::ExtData::SavePhobosFogExploredPayload(PhobosStreamWriter& Stm) const
+{
+	const auto cellCount = static_cast<unsigned int>(MapClass::MaxCells);
+	const auto byteCount = GetPhobosFogExploredPayloadByteCount(cellCount);
+	std::vector<unsigned char> bitset(byteCount, 0u);
+	const bool hasValidCellStates = this->PhobosFog_CellStates.size() == static_cast<size_t>(cellCount);
+
+	if (hasValidCellStates)
+	{
+		for (unsigned int cellIndex = 0; cellIndex < cellCount; ++cellIndex)
+		{
+			const auto state = this->PhobosFog_CellStates[cellIndex];
+
+			if (state == PhobosFogCellState::Explored || state == PhobosFogCellState::Visible)
+				bitset[cellIndex / 8u] |= static_cast<unsigned char>(1u << (cellIndex % 8u));
+		}
+	}
+
+	const auto magic = PhobosFogPayloadMagic;
+	const auto version = PhobosFogPayloadVersion;
+
+	Stm.Save(magic);
+	Stm.Save(version);
+	Stm.Save(cellCount);
+	Stm.Save(byteCount);
+
+	if (byteCount > 0u)
+		Stm.Write(bitset.data(), byteCount);
+}
+
+void HouseExt::ExtData::TouchPhobosFogStateVersion(HouseExt::PhobosFogStateTouchReason reason)
+{
+	++this->PhobosFog_StateVersion;
+
+	if (this->PhobosFog_StateVersion == 0)
+		this->PhobosFog_StateVersion = 1;
+
+	const auto pRulesExt = RulesExt::Global();
+
+	if (!pRulesExt || !pRulesExt->PhobosFog_Perf_Enabled)
+		return;
+
+	++this->PhobosFog_StateVersionTouchCount;
+
+	auto reasonIndex = static_cast<size_t>(reason);
+
+	if (reasonIndex >= PhobosFogStateTouchReasonCount)
+		reasonIndex = static_cast<size_t>(PhobosFogStateTouchReason::Other);
+
+	++this->PhobosFog_StateVersionTouchReasons[reasonIndex];
+}
+
+void HouseExt::ExtData::TouchPhobosFogOverlayEffectiveVersion()
+{
+	++this->PhobosFog_OverlayEffectiveVersion;
+
+	if (this->PhobosFog_OverlayEffectiveVersion == 0)
+		this->PhobosFog_OverlayEffectiveVersion = 1;
+
+	++this->PhobosFog_OverlayEffectiveTouchCount;
+}
+
+void HouseExt::ExtData::BeginPhobosFogOverlayEffectiveBatch()
+{
+	this->PhobosFog_OverlayEffectiveBatchActive = true;
+	this->PhobosFog_OverlayEffectiveBatchTouchedCells.clear();
+	this->PhobosFog_OverlayEffectiveBatchOriginalStates.clear();
+	this->PhobosFog_LastOverlayEffectiveBatchTouchedCells = 0;
+	this->PhobosFog_LastOverlayEffectiveBatchChangedCells = 0;
+
+	++this->PhobosFog_OverlayEffectiveBatchStamp;
+
+	if (this->PhobosFog_OverlayEffectiveBatchStamp == 0)
+	{
+		std::fill(
+			this->PhobosFog_OverlayEffectiveBatchCellStamps.begin(),
+			this->PhobosFog_OverlayEffectiveBatchCellStamps.end(),
+			0U);
+		this->PhobosFog_OverlayEffectiveBatchStamp = 1;
+	}
+}
+
+void HouseExt::ExtData::TrackPhobosFogOverlayOriginalCell(int cellIndex)
+{
+	if (!this->PhobosFog_OverlayEffectiveBatchActive
+		|| cellIndex < 0
+		|| cellIndex >= MapClass::MaxCells)
+	{
+		return;
+	}
+
+	if (this->PhobosFog_OverlayEffectiveBatchCellStamps.size() != MapClass::MaxCells)
+		this->PhobosFog_OverlayEffectiveBatchCellStamps.resize(MapClass::MaxCells, 0U);
+
+	const auto index = static_cast<size_t>(cellIndex);
+
+	if (this->PhobosFog_OverlayEffectiveBatchCellStamps[index] == this->PhobosFog_OverlayEffectiveBatchStamp)
+		return;
+
+	this->PhobosFog_OverlayEffectiveBatchCellStamps[index] = this->PhobosFog_OverlayEffectiveBatchStamp;
+	this->PhobosFog_OverlayEffectiveBatchTouchedCells.push_back(cellIndex);
+	this->PhobosFog_OverlayEffectiveBatchOriginalStates.push_back(this->GetEffectivePhobosFogCellState(cellIndex));
+}
+
+void HouseExt::ExtData::EndPhobosFogOverlayEffectiveBatch()
+{
+	if (!this->PhobosFog_OverlayEffectiveBatchActive)
+		return;
+
+	size_t changedCells = 0;
+	const auto count = std::min(
+		this->PhobosFog_OverlayEffectiveBatchTouchedCells.size(),
+		this->PhobosFog_OverlayEffectiveBatchOriginalStates.size());
+
+	for (size_t i = 0; i < count; ++i)
+	{
+		const int cellIndex = this->PhobosFog_OverlayEffectiveBatchTouchedCells[i];
+		const auto originalState = this->PhobosFog_OverlayEffectiveBatchOriginalStates[i];
+
+		if (cellIndex >= 0
+			&& cellIndex < MapClass::MaxCells
+			&& this->GetEffectivePhobosFogCellState(cellIndex) != originalState)
+		{
+			++changedCells;
+		}
+	}
+
+	this->PhobosFog_LastOverlayEffectiveBatchTouchedCells = count;
+	this->PhobosFog_LastOverlayEffectiveBatchChangedCells = changedCells;
+	this->PhobosFog_OverlayEffectiveBatchActive = false;
+	this->PhobosFog_OverlayEffectiveBatchTouchedCells.clear();
+	this->PhobosFog_OverlayEffectiveBatchOriginalStates.clear();
+
+	if (changedCells > 0)
+		this->TouchPhobosFogOverlayEffectiveVersion();
+}
+
+void HouseExt::ExtData::AbortPhobosFogOverlayEffectiveBatch()
+{
+	this->PhobosFog_OverlayEffectiveBatchActive = false;
+	this->PhobosFog_OverlayEffectiveBatchTouchedCells.clear();
+	this->PhobosFog_OverlayEffectiveBatchOriginalStates.clear();
+	this->PhobosFog_LastOverlayEffectiveBatchTouchedCells = 0;
+	this->PhobosFog_LastOverlayEffectiveBatchChangedCells = 0;
+}
+
+bool HouseExt::ExtData::EnsurePhobosFogStateSize()
+{
+	bool resized = false;
+
+	if (this->PhobosFog_CellStates.size() != MapClass::MaxCells)
+	{
+		this->PhobosFog_CellStates.resize(MapClass::MaxCells, PhobosFogCellState::Unknown);
+		resized = true;
+	}
+
+	if (this->PhobosFog_LastVisibleFrames.size() != MapClass::MaxCells)
+	{
+		this->PhobosFog_LastVisibleFrames.resize(MapClass::MaxCells, -1);
+		resized = true;
+	}
+
+	if (resized)
+	{
+		this->TouchPhobosFogStateVersion(PhobosFogStateTouchReason::EnsureResize);
+		this->TouchPhobosFogOverlayEffectiveVersion();
+	}
+
+	return resized;
+}
+
+void HouseExt::ExtData::DegradePhobosFogVisibility(int currentFrame)
+{
+	bool changed = false;
+
+	for (size_t i = 0; i < this->PhobosFog_CellStates.size(); ++i)
+	{
+		if (this->PhobosFog_CellStates[i] == PhobosFogCellState::Visible
+			&& (i >= this->PhobosFog_LastVisibleFrames.size() || this->PhobosFog_LastVisibleFrames[i] < currentFrame))
+		{
+			this->TrackPhobosFogOverlayOriginalCell(static_cast<int>(i));
+			this->PhobosFog_CellStates[i] = PhobosFogCellState::Explored;
+			changed = true;
+		}
+	}
+
+	if (changed)
+	{
+		this->TouchPhobosFogStateVersion(PhobosFogStateTouchReason::DegradeVisibleToExplored);
+
+		if (!this->PhobosFog_OverlayEffectiveBatchActive)
+			this->TouchPhobosFogOverlayEffectiveVersion();
+	}
+}
+
+bool HouseExt::ExtData::MarkPhobosFogCellExplored(CellStruct cell)
+{
+	this->EnsurePhobosFogStateSize();
+
+	if (this->PhobosFog_CellStates.size() != MapClass::MaxCells
+		|| !MapClass::Instance.TryGetCellAt(cell))
+	{
+		return false;
+	}
+
+	const int cellIndex = MapClass::GetCellIndex(cell);
+
+	if (cellIndex >= 0 && cellIndex < MapClass::MaxCells)
+	{
+		const auto index = static_cast<size_t>(cellIndex);
+
+		if (this->PhobosFog_CellStates[index] == PhobosFogCellState::Unknown)
+		{
+			this->TrackPhobosFogOverlayOriginalCell(cellIndex);
+			this->PhobosFog_CellStates[index] = PhobosFogCellState::Explored;
+			this->TouchPhobosFogStateVersion(PhobosFogStateTouchReason::MarkExplored);
+
+			if (!this->PhobosFog_OverlayEffectiveBatchActive)
+				this->TouchPhobosFogOverlayEffectiveVersion();
+
+			return true;
+		}
+	}
+
+	return false;
+}
+
+size_t HouseExt::ExtData::MarkPhobosFogAreaExplored(CellStruct center, double radius)
+{
+	if (!MapClass::Instance.TryGetCellAt(center) || radius <= 0.0)
+		return 0;
+
+	size_t markedCells = 0;
+
+	CellRangeIterator<CellClass>{}(center, radius, [this, &markedCells](CellClass* const pCell)
+	{
+		if (this->MarkPhobosFogCellExplored(pCell->MapCoords))
+			++markedCells;
+
+		return true;
+	});
+
+	return markedCells;
+}
+
+size_t HouseExt::ExtData::MarkPhobosFogCellSpreadExplored(CellStruct center, size_t spread)
+{
+	if (!MapClass::Instance.TryGetCellAt(center))
+		return 0;
+
+	size_t markedCells = 0;
+
+	CellSpreadIterator<CellClass>{}(center, spread, [this, &markedCells](CellClass* const pCell)
+	{
+		if (pCell && this->MarkPhobosFogCellExplored(pCell->MapCoords))
+			++markedCells;
+
+		return true;
+	});
+
+	return markedCells;
+}
+
+size_t HouseExt::ExtData::MarkAllPhobosFogCellsExplored()
+{
+	this->EnsurePhobosFogStateSize();
+
+	if (this->PhobosFog_CellStates.size() != MapClass::MaxCells)
+		return 0;
+
+	size_t markedCells = 0;
+	auto& map = MapClass::Instance;
+	map.CellIteratorReset();
+
+	for (auto pCell = map.CellIteratorNext(); pCell; pCell = map.CellIteratorNext())
+	{
+		const int cellIndex = MapClass::GetCellIndex(pCell->MapCoords);
+
+		if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
+			continue;
+
+		const auto index = static_cast<size_t>(cellIndex);
+
+		if (this->PhobosFog_CellStates[index] == PhobosFogCellState::Unknown)
+		{
+			this->TrackPhobosFogOverlayOriginalCell(cellIndex);
+			this->PhobosFog_CellStates[index] = PhobosFogCellState::Explored;
+			++markedCells;
+		}
+	}
+
+	if (markedCells > 0)
+	{
+		this->TouchPhobosFogStateVersion(PhobosFogStateTouchReason::MarkAllExplored);
+
+		if (!this->PhobosFog_OverlayEffectiveBatchActive)
+			this->TouchPhobosFogOverlayEffectiveVersion();
+	}
+
+	return markedCells;
+}
+
+bool HouseExt::ExtData::MarkPhobosFogCellVisible(CellStruct cell, int currentFrame)
+{
+	return this->MarkPhobosFogCellVisibleUntil(cell, currentFrame, PhobosFogStateTouchReason::MarkVisible);
+}
+
+bool HouseExt::ExtData::MarkPhobosFogCellVisibleUntil(CellStruct cell, int visibleUntilFrame)
+{
+	return this->MarkPhobosFogCellVisibleUntil(cell, visibleUntilFrame, PhobosFogStateTouchReason::MarkVisibleUntil);
+}
+
+bool HouseExt::ExtData::MarkPhobosFogCellVisibleUntil(CellStruct cell, int visibleUntilFrame, HouseExt::PhobosFogStateTouchReason reason)
+{
+	if (this->PhobosFog_CellStates.size() != MapClass::MaxCells
+		|| this->PhobosFog_LastVisibleFrames.size() != MapClass::MaxCells
+		|| !MapClass::Instance.TryGetCellAt(cell))
+	{
+		return false;
+	}
+
+	const int cellIndex = MapClass::GetCellIndex(cell);
+
+	if (cellIndex >= 0 && cellIndex < MapClass::MaxCells)
+	{
+		const auto index = static_cast<size_t>(cellIndex);
+
+		if (this->PhobosFog_CellStates[index] == PhobosFogCellState::Visible
+			&& this->PhobosFog_LastVisibleFrames[index] >= visibleUntilFrame)
+		{
+			return true;
+		}
+
+		this->TrackPhobosFogOverlayOriginalCell(cellIndex);
+		this->PhobosFog_CellStates[index] = PhobosFogCellState::Visible;
+		if (this->PhobosFog_LastVisibleFrames[index] < visibleUntilFrame)
+			this->PhobosFog_LastVisibleFrames[index] = visibleUntilFrame;
+
+		this->TouchPhobosFogStateVersion(reason);
+
+		if (!this->PhobosFog_OverlayEffectiveBatchActive)
+			this->TouchPhobosFogOverlayEffectiveVersion();
+
+		return true;
+	}
+
+	return false;
+}
+
+size_t HouseExt::ExtData::MarkPhobosFogAreaVisibleUntil(CellStruct center, double radius, int visibleUntilFrame, PhobosFogRevealAreaStats* pStats)
+{
+	if (!MapClass::Instance.TryGetCellAt(center) || radius <= 0.0)
+		return 0;
+
+	this->EnsurePhobosFogStateSize();
+
+	size_t markedCells = 0;
+	bool changed = false;
+
+	CellRangeIterator<CellClass>{}(center, radius, [this, &markedCells, &changed, visibleUntilFrame, pStats](CellClass* const pCell)
+	{
+		if (!pCell)
+		{
+			if (pStats)
+				++pStats->InvalidCells;
+
+			return true;
+		}
+
+		const int cellIndex = MapClass::GetCellIndex(pCell->MapCoords);
+
+		if (cellIndex >= 0 && cellIndex < MapClass::MaxCells)
+		{
+			const auto index = static_cast<size_t>(cellIndex);
+			const auto previousState = this->PhobosFog_CellStates[index];
+			const int previousVisibleUntil = this->PhobosFog_LastVisibleFrames[index];
+
+			if (pStats)
+			{
+				++pStats->AffectedCells;
+				pStats->MinCellX = std::min(pStats->MinCellX, pCell->MapCoords.X);
+				pStats->MaxCellX = std::max(pStats->MaxCellX, pCell->MapCoords.X);
+				pStats->MinCellY = std::min(pStats->MinCellY, pCell->MapCoords.Y);
+				pStats->MaxCellY = std::max(pStats->MaxCellY, pCell->MapCoords.Y);
+			}
+
+			if (previousState != PhobosFogCellState::Visible
+				|| previousVisibleUntil < visibleUntilFrame)
+			{
+				this->TrackPhobosFogOverlayOriginalCell(cellIndex);
+				this->PhobosFog_CellStates[index] = PhobosFogCellState::Visible;
+				this->PhobosFog_LastVisibleFrames[index] = visibleUntilFrame;
+				changed = true;
+
+				if (pStats)
+				{
+					switch (previousState)
+					{
+					case PhobosFogCellState::Unknown:
+						++pStats->UnknownPromoted;
+						break;
+					case PhobosFogCellState::Explored:
+						++pStats->ExploredPromoted;
+						break;
+					case PhobosFogCellState::Visible:
+						++pStats->VisibleExtended;
+						break;
+					default:
+						break;
+					}
+				}
+			}
+			else if (pStats)
+			{
+				++pStats->AlreadyVisibleEnoughSkipped;
+			}
+
+			++markedCells;
+		}
+		else if (pStats)
+		{
+			++pStats->OutOfBoundsSkipped;
+		}
+
+		return true;
+	});
+
+	if (changed)
+	{
+		this->TouchPhobosFogStateVersion(PhobosFogStateTouchReason::MarkAreaVisible);
+
+		if (!this->PhobosFog_OverlayEffectiveBatchActive)
+			this->TouchPhobosFogOverlayEffectiveVersion();
+	}
+
+	return markedCells;
+}
+
+size_t HouseExt::ExtData::MarkPhobosFogCellSpreadVisibleUntil(CellStruct center, size_t spread, int visibleUntilFrame, PhobosFogRevealAreaStats* pStats)
+{
+	if (!MapClass::Instance.TryGetCellAt(center))
+		return 0;
+
+	this->EnsurePhobosFogStateSize();
+
+	size_t markedCells = 0;
+	bool changed = false;
+
+	CellSpreadIterator<CellClass>{}(center, spread, [this, &markedCells, &changed, visibleUntilFrame, pStats](CellClass* const pCell)
+	{
+		if (!pCell)
+		{
+			if (pStats)
+				++pStats->InvalidCells;
+
+			return true;
+		}
+
+		const int cellIndex = MapClass::GetCellIndex(pCell->MapCoords);
+
+		if (cellIndex >= 0 && cellIndex < MapClass::MaxCells)
+		{
+			const auto index = static_cast<size_t>(cellIndex);
+			const auto previousState = this->PhobosFog_CellStates[index];
+			const int previousVisibleUntil = this->PhobosFog_LastVisibleFrames[index];
+
+			if (pStats)
+			{
+				++pStats->AffectedCells;
+				pStats->MinCellX = std::min(pStats->MinCellX, pCell->MapCoords.X);
+				pStats->MaxCellX = std::max(pStats->MaxCellX, pCell->MapCoords.X);
+				pStats->MinCellY = std::min(pStats->MinCellY, pCell->MapCoords.Y);
+				pStats->MaxCellY = std::max(pStats->MaxCellY, pCell->MapCoords.Y);
+			}
+
+			if (previousState != PhobosFogCellState::Visible
+				|| previousVisibleUntil < visibleUntilFrame)
+			{
+				this->TrackPhobosFogOverlayOriginalCell(cellIndex);
+				this->PhobosFog_CellStates[index] = PhobosFogCellState::Visible;
+				this->PhobosFog_LastVisibleFrames[index] = visibleUntilFrame;
+				changed = true;
+
+				if (pStats)
+				{
+					switch (previousState)
+					{
+					case PhobosFogCellState::Unknown:
+						++pStats->UnknownPromoted;
+						break;
+					case PhobosFogCellState::Explored:
+						++pStats->ExploredPromoted;
+						break;
+					case PhobosFogCellState::Visible:
+						++pStats->VisibleExtended;
+						break;
+					default:
+						break;
+					}
+				}
+			}
+			else if (pStats)
+			{
+				++pStats->AlreadyVisibleEnoughSkipped;
+			}
+
+			++markedCells;
+		}
+		else if (pStats)
+		{
+			++pStats->OutOfBoundsSkipped;
+		}
+
+		return true;
+	});
+
+	if (changed)
+	{
+		this->TouchPhobosFogStateVersion(PhobosFogStateTouchReason::MarkCellSpreadVisible);
+
+		if (!this->PhobosFog_OverlayEffectiveBatchActive)
+			this->TouchPhobosFogOverlayEffectiveVersion();
+	}
+
+	return markedCells;
+}
+
+size_t HouseExt::ExtData::MarkAllPhobosFogCellsVisibleUntil(int visibleUntilFrame)
+{
+	this->EnsurePhobosFogStateSize();
+
+	if (this->PhobosFog_CellStates.size() != MapClass::MaxCells
+		|| this->PhobosFog_LastVisibleFrames.size() != MapClass::MaxCells)
+	{
+		return 0;
+	}
+
+	size_t markedCells = 0;
+	bool changed = false;
+	auto& map = MapClass::Instance;
+	map.CellIteratorReset();
+
+	for (auto pCell = map.CellIteratorNext(); pCell; pCell = map.CellIteratorNext())
+	{
+		const int cellIndex = MapClass::GetCellIndex(pCell->MapCoords);
+
+		if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
+			continue;
+
+		const auto index = static_cast<size_t>(cellIndex);
+		const auto previousState = this->PhobosFog_CellStates[index];
+		const int previousVisibleUntil = this->PhobosFog_LastVisibleFrames[index];
+
+		if (previousState != PhobosFogCellState::Visible
+			|| previousVisibleUntil < visibleUntilFrame)
+		{
+			this->TrackPhobosFogOverlayOriginalCell(cellIndex);
+			changed = true;
+		}
+
+		this->PhobosFog_CellStates[index] = PhobosFogCellState::Visible;
+		if (this->PhobosFog_LastVisibleFrames[index] < visibleUntilFrame)
+			this->PhobosFog_LastVisibleFrames[index] = visibleUntilFrame;
+
+		++markedCells;
+	}
+
+	if (changed)
+	{
+		this->TouchPhobosFogStateVersion(PhobosFogStateTouchReason::MarkAllVisible);
+
+		if (!this->PhobosFog_OverlayEffectiveBatchActive)
+			this->TouchPhobosFogOverlayEffectiveVersion();
+	}
+
+	return markedCells;
+}
+
+void HouseExt::ExtData::ExtendPhobosFogFullMapVisibleUntil(int visibleUntilFrame)
+{
+	if (this->PhobosFog_FullMapVisibleUntilFrame < visibleUntilFrame)
+	{
+		this->PhobosFog_FullMapVisibleUntilFrame = visibleUntilFrame;
+		this->TouchPhobosFogStateVersion(PhobosFogStateTouchReason::FullMapVisibleUntil);
+		this->TouchPhobosFogOverlayEffectiveVersion();
+	}
+}
+
+bool HouseExt::ExtData::IsPhobosFogFullMapHardVisible() const
+{
+	const auto pRulesExt = RulesExt::Global();
+
+	if (!pRulesExt || !pRulesExt->PhobosFog_Enabled)
+		return false;
+
+	auto const pHouse = this->OwnerObject();
+
+	if (pRulesExt->PhobosFog_SyncSpySatellite
+		&& pRulesExt->PhobosFog_SpySatellite_PersistentVisible
+		&& pHouse && pHouse->SpySatActive)
+	{
+		return true;
+	}
+
+	return (pRulesExt->PhobosFog_SyncFullMapReveal || pRulesExt->PhobosFog_SyncSpySatellite)
+		&& this->PhobosFog_FullMapVisibleUntilFrame > 0
+		&& this->PhobosFog_FullMapVisibleUntilFrame >= Unsorted::CurrentFrame;
+}
+
+HouseExt::PhobosFogCellState HouseExt::ExtData::GetEffectivePhobosFogCellState(int cellIndex) const
+{
+	if (this->IsPhobosFogFullMapHardVisible())
+		return PhobosFogCellState::Visible;
+
+	if (cellIndex < 0 || cellIndex >= MapClass::MaxCells
+		|| this->PhobosFog_CellStates.size() != MapClass::MaxCells)
+	{
+		return PhobosFogCellState::Unknown;
+	}
+
+	return this->PhobosFog_CellStates[static_cast<size_t>(cellIndex)];
+}
+
+bool HouseExt::ExtData::IsPhobosFogCellHardVisible(int cellIndex) const
+{
+	return this->GetEffectivePhobosFogCellState(cellIndex) == PhobosFogCellState::Visible;
+}
+
+static bool IsEligiblePhobosFogAlly(HouseClass* const pViewerHouse, HouseClass* const pHouse)
+{
+	return pViewerHouse && pHouse && pHouse != pViewerHouse && !pHouse->Defeated && !pHouse->IsObserver()
+		&& pHouse->Type && !pHouse->Type->MultiplayPassive && pViewerHouse->IsAlliedWith(pHouse);
+}
+
+bool HouseExt::ExtData::TryGetEffectivePhobosFogCellStateForHouse(HouseClass* pHouse, int cellIndex, PhobosFogCellState& state)
+{
+	if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
+		return false;
+
+	const auto pHouseExt = HouseExt::ExtMap.TryFind(pHouse);
+
+	if (!pHouseExt || pHouseExt->PhobosFog_CellStates.size() != MapClass::MaxCells)
+		return false;
+
+	state = pHouseExt->GetEffectivePhobosFogCellState(cellIndex);
+	return true;
+}
+
+bool HouseExt::ExtData::TryGetEffectivePhobosFogCellStateForViewerOrAllies(HouseClass* pViewerHouse, int cellIndex, PhobosFogCellState& state)
+{
+	if (!pViewerHouse || pViewerHouse->IsObserver())
+		return false;
+
+	if (!TryGetEffectivePhobosFogCellStateForHouse(pViewerHouse, cellIndex, state))
+		return false;
+
+	if (state == PhobosFogCellState::Visible)
+		return true;
+
+	bool hasExplored = state == PhobosFogCellState::Explored;
+	PhobosFogCellState allyState = PhobosFogCellState::Unknown;
+
+	for (auto const pHouse : HouseClass::Array)
+	{
+		if (!IsEligiblePhobosFogAlly(pViewerHouse, pHouse)
+			|| !TryGetEffectivePhobosFogCellStateForHouse(pHouse, cellIndex, allyState))
+		{
+			continue;
+		}
+
+		if (allyState == PhobosFogCellState::Visible)
+		{
+			state = PhobosFogCellState::Visible;
+			return true;
+		}
+
+		hasExplored = hasExplored || allyState == PhobosFogCellState::Explored;
+	}
+
+	state = hasExplored ? PhobosFogCellState::Explored : PhobosFogCellState::Unknown;
+	return true;
+}
+
+bool HouseExt::ExtData::IsPhobosFogCellHardVisibleToViewerOrAllies(HouseClass* pViewerHouse, int cellIndex, bool& querySucceeded)
+{
+	querySucceeded = false;
+
+	PhobosFogCellState state = PhobosFogCellState::Unknown;
+
+	if (!TryGetEffectivePhobosFogCellStateForViewerOrAllies(pViewerHouse, cellIndex, state))
+		return false;
+
+	querySucceeded = true;
+	return state == PhobosFogCellState::Visible;
+}
+
+void HouseExt::ExtData::ResetPhobosFogDebugRefreshStats(bool resized)
+{
+	this->PhobosFog_LastRefreshProviders = 0;
+	this->PhobosFog_LastRefreshVisibleCells = 0;
+	this->PhobosFog_LastRefreshResized = resized;
+}
+
+void HouseExt::ExtData::AddPhobosFogDebugVisibilityProvider()
+{
+	++this->PhobosFog_LastRefreshProviders;
+}
+
+void HouseExt::ExtData::AddPhobosFogDebugVisibleCell()
+{
+	++this->PhobosFog_LastRefreshVisibleCells;
+}
+
+void HouseExt::ExtData::LogPhobosFogDebugSummary() const
+{
+	size_t unknownCount = 0;
+	size_t exploredCount = 0;
+	size_t visibleCount = 0;
+
+	for (const auto cellState : this->PhobosFog_CellStates)
+	{
+		switch (cellState)
+		{
+		case PhobosFogCellState::Explored:
+			++exploredCount;
+			break;
+		case PhobosFogCellState::Visible:
+			++visibleCount;
+			break;
+		case PhobosFogCellState::Unknown:
+		default:
+			++unknownCount;
+			break;
+		}
+	}
+
+	auto const pHouse = this->OwnerObject();
+	Debug::Log("[PhobosFog] House=%s VectorSize=%u Unknown=%u Explored=%u Visible=%u Providers=%u VisibleMarks=%u Resized=%s\n",
+		pHouse ? pHouse->PlainName : "<null>",
+		static_cast<unsigned int>(this->PhobosFog_CellStates.size()),
+		static_cast<unsigned int>(unknownCount),
+		static_cast<unsigned int>(exploredCount),
+		static_cast<unsigned int>(visibleCount),
+		static_cast<unsigned int>(this->PhobosFog_LastRefreshProviders),
+		static_cast<unsigned int>(this->PhobosFog_LastRefreshVisibleCells),
+		this->PhobosFog_LastRefreshResized ? "true" : "false");
 }
 
 void HouseExt::ExtData::InvalidatePointer(void* ptr, bool bRemoved)

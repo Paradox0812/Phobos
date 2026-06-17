@@ -1,9 +1,403 @@
 #include "Body.h"
 
+#include <BuildingClass.h>
+#include <CellClass.h>
+#include <Ext/House/Body.h>
+#include <Ext/Rules/Body.h>
+#include <Unsorted.h>
+#include <Utilities/Debug.h>
+
+namespace
+{
+	struct FoggedObjectSnapshot
+	{
+		char Padding0[0x30];
+		AbstractType Type;
+		CoordStruct Coords;
+	};
+
+	static_assert(offsetof(FoggedObjectSnapshot, Type) == 0x30);
+	static_assert(offsetof(FoggedObjectSnapshot, Coords) == 0x34);
+
+	struct BuildingVisibilityProbe
+	{
+		const char* Reason { "Unset" };
+		CellStruct BaseCell {};
+		int FoundationCells { 0 };
+		int ValidCells { 0 };
+		int InvalidCells { 0 };
+		int QueryFailedCells { 0 };
+		int VisibleCells { 0 };
+		bool QuerySucceeded { false };
+		bool Visible { false };
+		bool ShouldHide { false };
+	};
+
+	const char* SafeText(const char* const pText)
+	{
+		return pText ? pText : "<null>";
+	}
+
+	const char* BoolText(const bool value)
+	{
+		return value ? "true" : "false";
+	}
+
+	const char* GetHouseID(HouseClass* const pHouse)
+	{
+		return SafeText(pHouse ? pHouse->get_ID() : nullptr);
+	}
+
+	const char* GetTechnoID(TechnoClass* const pTechno)
+	{
+		return SafeText(pTechno ? pTechno->get_ID() : nullptr);
+	}
+
+	bool ShouldLogPhobosFogBuildingProbe()
+	{
+		const auto pRulesExt = RulesExt::Global();
+
+		return pRulesExt && pRulesExt->PhobosFog_Enabled && pRulesExt->PhobosFog_Debug && pRulesExt->PhobosFog_HideBuildings;
+	}
+
+	bool CanEmitPhobosFogBuildingProbeLog()
+	{
+		static int lastFrame = -1;
+		static int frameLogs = 0;
+
+		if (!ShouldLogPhobosFogBuildingProbe() || Unsorted::CurrentFrame % 30 != 0)
+			return false;
+
+		if (lastFrame != Unsorted::CurrentFrame)
+		{
+			lastFrame = Unsorted::CurrentFrame;
+			frameLogs = 0;
+		}
+
+		if (frameLogs >= 32)
+			return false;
+
+		++frameLogs;
+		return true;
+	}
+
+	void LogPhobosFogBuildingProbe(TechnoClass* const pTechno, HouseClass* const pViewerHouse, const BuildingVisibilityProbe& probe)
+	{
+		if (!CanEmitPhobosFogBuildingProbeLog())
+			return;
+
+		const auto pOwner = pTechno ? pTechno->Owner : nullptr;
+
+		Debug::Log(
+			"[PhobosFogBuilding] Frame=%d Origin=0x6D9134 Techno=%p ID=%s WhatAmI=%d Owner=%s Viewer=%s Reason=%s ShouldHide=%s Query=%s Visible=%s BaseCell=%d,%d Foundation=%d Valid=%d Invalid=%d QueryFailed=%d VisibleCells=%d\n",
+			Unsorted::CurrentFrame,
+			pTechno,
+			GetTechnoID(pTechno),
+			pTechno ? static_cast<int>(pTechno->WhatAmI()) : -1,
+			GetHouseID(pOwner),
+			GetHouseID(pViewerHouse),
+			SafeText(probe.Reason),
+			BoolText(probe.ShouldHide),
+			BoolText(probe.QuerySucceeded),
+			BoolText(probe.Visible),
+			probe.BaseCell.X,
+			probe.BaseCell.Y,
+			probe.FoundationCells,
+			probe.ValidCells,
+			probe.InvalidCells,
+			probe.QueryFailedCells,
+			probe.VisibleCells);
+	}
+
+	bool IsPhobosFogCellVisibleToViewerOrAllies(HouseClass* const pViewerHouse, const int cellIndex)
+	{
+		bool querySucceeded = false;
+
+		return HouseExt::ExtData::IsPhobosFogCellHardVisibleToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+	}
+
+	bool IsPhobosFogCellVisibleToViewerOrAllies(HouseClass* const pViewerHouse, const int cellIndex, bool& querySucceeded)
+	{
+		return HouseExt::ExtData::IsPhobosFogCellHardVisibleToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+	}
+
+	bool IsPhobosFogCellKnownToViewerOrAllies(HouseClass* const pViewerHouse, const int cellIndex, bool& querySucceeded)
+	{
+		querySucceeded = false;
+
+		HouseExt::PhobosFogCellState state = HouseExt::PhobosFogCellState::Unknown;
+
+		if (!HouseExt::ExtData::TryGetEffectivePhobosFogCellStateForViewerOrAllies(pViewerHouse, cellIndex, state))
+			return false;
+
+		querySucceeded = true;
+		return state != HouseExt::PhobosFogCellState::Unknown;
+	}
+
+	bool IsBuildingFoundationVisibleToViewerOrAllies(BuildingClass* const pBuilding, HouseClass* const pViewerHouse, bool& querySucceeded, BuildingVisibilityProbe* const pProbe = nullptr)
+	{
+		querySucceeded = false;
+
+		if (!pBuilding || !pBuilding->Type || !pViewerHouse)
+		{
+			if (pProbe)
+				pProbe->Reason = "InvalidInput";
+
+			return false;
+		}
+
+		if (pProbe)
+			pProbe->BaseCell = pBuilding->GetMapCoords();
+
+		auto const pFoundation = pBuilding->GetFoundationData(false);
+
+		if (!pFoundation)
+		{
+			if (pProbe)
+				pProbe->Reason = "NoFoundation";
+
+			return false;
+		}
+
+		const auto baseCell = pBuilding->GetMapCoords();
+		const CellStruct foundationEnd = { 0x7FFF, 0x7FFF };
+
+		for (auto pCellOffset = pFoundation; *pCellOffset != foundationEnd; ++pCellOffset)
+		{
+			if (pProbe)
+				++pProbe->FoundationCells;
+
+			const auto cell = baseCell + *pCellOffset;
+
+			if (!MapClass::Instance.TryGetCellAt(cell))
+			{
+				if (pProbe)
+					++pProbe->InvalidCells;
+
+				continue;
+			}
+
+			const int cellIndex = MapClass::GetCellIndex(cell);
+
+			if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
+			{
+				if (pProbe)
+					++pProbe->InvalidCells;
+
+				continue;
+			}
+
+			if (pProbe)
+				++pProbe->ValidCells;
+
+			bool cellQuerySucceeded = false;
+			const bool visible = IsPhobosFogCellVisibleToViewerOrAllies(pViewerHouse, cellIndex, cellQuerySucceeded);
+
+			if (!cellQuerySucceeded)
+			{
+				if (pProbe)
+				{
+					++pProbe->QueryFailedCells;
+					pProbe->Reason = "CellQueryFailed";
+				}
+
+				querySucceeded = false;
+				return false;
+			}
+
+			querySucceeded = true;
+
+			if (visible)
+			{
+				if (pProbe)
+				{
+					++pProbe->VisibleCells;
+					pProbe->QuerySucceeded = true;
+					pProbe->Visible = true;
+					pProbe->Reason = "VisibleFoundation";
+					continue;
+				}
+
+				return true;
+			}
+		}
+
+		if (pProbe)
+		{
+			pProbe->QuerySucceeded = querySucceeded;
+			pProbe->Visible = pProbe->VisibleCells > 0;
+			pProbe->Reason = querySucceeded ? (pProbe->Visible ? "VisibleFoundation" : "HiddenFoundation") : "NoValidFoundationCells";
+		}
+
+		if (pProbe && pProbe->Visible)
+			return true;
+
+		return false;
+	}
+
+	bool ShouldHidePhobosFogFoot(TechnoClass* const pTechno)
+	{
+		auto const pRulesExt = RulesExt::Global();
+
+		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_HideEnemyFoot
+			|| !pTechno || !pTechno->Owner)
+		{
+			return false;
+		}
+
+		auto const pViewerHouse = HouseClass::CurrentPlayer;
+
+		if (!pViewerHouse || pViewerHouse->IsObserver() || pViewerHouse->IsAlliedWith(pTechno->Owner))
+			return false;
+
+		const auto cell = pTechno->GetMapCoords();
+
+		if (!MapClass::Instance.TryGetCellAt(cell))
+			return false;
+
+		const int cellIndex = MapClass::GetCellIndex(cell);
+
+		if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
+			return false;
+
+		return !IsPhobosFogCellVisibleToViewerOrAllies(pViewerHouse, cellIndex);
+	}
+
+	bool ShouldHidePhobosFogBuilding(TechnoClass* const pTechno)
+	{
+		auto const pRulesExt = RulesExt::Global();
+		auto const pViewerHouse = HouseClass::CurrentPlayer;
+		BuildingVisibilityProbe probe {};
+
+		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_HideBuildings
+			|| !pTechno || pTechno->WhatAmI() != AbstractType::Building)
+		{
+			probe.Reason = !pRulesExt ? "NoRules" : !pRulesExt->PhobosFog_Enabled ? "Disabled" : !pRulesExt->PhobosFog_HideBuildings ? "HideBuildingsOff" : !pTechno ? "NoTechno" : "NotBuilding";
+			LogPhobosFogBuildingProbe(pTechno, pViewerHouse, probe);
+			return false;
+		}
+
+		if (!pViewerHouse || pViewerHouse->IsObserver())
+		{
+			probe.Reason = "NoViewer";
+			LogPhobosFogBuildingProbe(pTechno, pViewerHouse, probe);
+			return false;
+		}
+
+		auto const pBuilding = static_cast<BuildingClass*>(pTechno);
+
+		bool querySucceeded = false;
+		const bool visible = IsBuildingFoundationVisibleToViewerOrAllies(
+			pBuilding,
+			pViewerHouse,
+			querySucceeded,
+			ShouldLogPhobosFogBuildingProbe() ? &probe : nullptr);
+
+		const bool shouldHide = querySucceeded && !visible;
+
+		probe.QuerySucceeded = querySucceeded;
+		probe.Visible = visible;
+		probe.ShouldHide = shouldHide;
+
+		if (!querySucceeded && !ShouldLogPhobosFogBuildingProbe())
+			probe.Reason = "QueryFailed";
+		else if (querySucceeded && !visible && !ShouldLogPhobosFogBuildingProbe())
+			probe.Reason = "Hidden";
+
+		LogPhobosFogBuildingProbe(pTechno, pViewerHouse, probe);
+
+		return shouldHide;
+	}
+
+	bool IsPhobosFogTechnoVisibleToViewerOrAllies(TechnoClass* const pTechno, bool& querySucceeded)
+	{
+		querySucceeded = false;
+
+		if (!pTechno)
+			return false;
+
+		auto const pViewerHouse = HouseClass::CurrentPlayer;
+
+		if (!pViewerHouse || pViewerHouse->IsObserver())
+			return false;
+
+		if (pTechno->WhatAmI() == AbstractType::Building)
+			return IsBuildingFoundationVisibleToViewerOrAllies(static_cast<BuildingClass*>(pTechno), pViewerHouse, querySucceeded);
+
+		const auto cell = pTechno->GetMapCoords();
+
+		if (!MapClass::Instance.TryGetCellAt(cell))
+			return false;
+
+		const int cellIndex = MapClass::GetCellIndex(cell);
+
+		if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
+			return false;
+
+		return IsPhobosFogCellVisibleToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+	}
+
+	bool ShouldSuppressPhobosFogHoverHealthBar(TechnoClass* const pTechno)
+	{
+		auto const pRulesExt = RulesExt::Global();
+
+		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_HideHoverHealthBar)
+			return false;
+
+		bool querySucceeded = false;
+		const bool visible = IsPhobosFogTechnoVisibleToViewerOrAllies(pTechno, querySucceeded);
+
+		return querySucceeded && !visible;
+	}
+
+	bool ShouldHidePhobosFogFoggedBuilding(const FoggedObjectSnapshot* const pFoggedObject)
+	{
+		auto const pRulesExt = RulesExt::Global();
+
+		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_HideBuildings
+			|| !pFoggedObject || pFoggedObject->Type != AbstractType::Building)
+		{
+			return false;
+		}
+
+		auto const pViewerHouse = HouseClass::CurrentPlayer;
+
+		if (!pViewerHouse || pViewerHouse->IsObserver())
+			return false;
+
+		auto const cell = CellClass::Coord2Cell(pFoggedObject->Coords);
+
+		if (!MapClass::Instance.TryGetCellAt(cell))
+			return true;
+
+		auto const cellIndex = MapClass::GetCellIndex(cell);
+
+		if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
+			return true;
+
+		bool querySucceeded = false;
+		auto const known = IsPhobosFogCellKnownToViewerOrAllies(pViewerHouse, cellIndex, querySucceeded);
+
+		return !querySucceeded || !known;
+	}
+}
+
 DEFINE_HOOK_AGAIN(0x6D9134, TacticalClass_RenderLayers_DrawBefore, 0x5)// BuildingClass
 DEFINE_HOOK(0x6D9076, TacticalClass_RenderLayers_DrawBefore, 0x5)// FootClass
 {
+	enum
+	{
+		SkipCurrentFootDraw = 0x6D9408,
+		SkipCurrentBuildingDraw = 0x6D940C
+	};
+
 	GET(TechnoClass*, pTechno, ESI);
+
+	if (R->Origin() == 0x6D9076 && ShouldHidePhobosFogFoot(pTechno))
+		return SkipCurrentFootDraw;
+
+	if (R->Origin() == 0x6D9134 && ShouldHidePhobosFogBuilding(pTechno))
+		return SkipCurrentBuildingDraw;
 
 	if (pTechno->IsSelected && Phobos::Config::EnableSelectBox)
 	{
@@ -19,6 +413,18 @@ DEFINE_HOOK(0x6D9076, TacticalClass_RenderLayers_DrawBefore, 0x5)// FootClass
 	return 0;
 }
 
+DEFINE_HOOK(0x4D18F7, FoggedObjectClass_Draw_PhobosFogHideBuildings, 0x5)
+{
+	enum { SkipCurrentFoggedObjectDraw = 0x4D2311 };
+
+	GET(FoggedObjectSnapshot*, pFoggedObject, EBX);
+
+	if (ShouldHidePhobosFogFoggedBuilding(pFoggedObject))
+		return SkipCurrentFoggedObjectDraw;
+
+	return 0;
+}
+
 DEFINE_HOOK(0x6F5E37, TechnoClass_DrawExtras_DrawHealthBar, 0x6)
 {
 	enum { Permanent = 0x6F5E41 };
@@ -26,6 +432,7 @@ DEFINE_HOOK(0x6F5E37, TechnoClass_DrawExtras_DrawHealthBar, 0x6)
 	GET(TechnoClass*, pThis, EBP);
 
 	if (pThis && (pThis->IsMouseHovering || TechnoExt::ExtMap.Find(pThis)->TypeExtData->HealthBar_Permanent)
+		&& !ShouldSuppressPhobosFogHoverHealthBar(pThis)
 		&& !MapClass::Instance.IsLocationShrouded(pThis->GetCoords()))
 	{
 		return Permanent;
@@ -73,9 +480,14 @@ DEFINE_HOOK(0x6F67E8, TechnoClass_DrawHealthBar_PermanentPipScale, 0xA)			// Dra
 
 DEFINE_HOOK(0x6F65D1, TechnoClass_DrawHealthBar_Buildings, 0x6)
 {
+	enum { SkipDraw = 0x6F6AB6 };
+
 	GET(BuildingClass*, pThis, ESI);
 	GET(const int, length, EBX);
 	GET_STACK(RectangleStruct*, pBound, STACK_OFFSET(0x4C, 0x8));
+
+	if (ShouldSuppressPhobosFogHoverHealthBar(pThis))
+		return SkipDraw;
 
 	const auto pExt = TechnoExt::ExtMap.Find(pThis);
 

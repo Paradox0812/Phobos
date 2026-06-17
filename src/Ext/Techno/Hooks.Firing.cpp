@@ -3,8 +3,102 @@
 #include <Ext/Anim/Body.h>
 #include <Ext/Building/Body.h>
 #include <Ext/Bullet/Body.h>
+#include <Ext/House/Body.h>
 #include <Ext/WarheadType/Body.h>
 #include <Ext/WeaponType/Body.h>
+
+#include <MapClass.h>
+
+class HouseClass;
+class ObjectClass;
+
+namespace PhobosFogAutoTarget
+{
+	bool IsPhobosFogObjectHardVisibleToHouse(HouseClass* const pViewerHouse, ObjectClass* const pTarget);
+}
+
+namespace PhobosFogAutoFire
+{
+	static bool ShouldBlockFireAtHiddenObject(TechnoClass* const pAttacker, AbstractClass* const pTarget)
+	{
+		const auto pRulesExt = RulesExt::Global();
+
+		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_GateAutoFire)
+			return false;
+
+		if (!pAttacker || !pTarget || !pAttacker->Owner)
+			return false;
+
+		const auto pTargetObject = abstract_cast<ObjectClass*, true>(pTarget);
+		const auto pTargetTechno = abstract_cast<TechnoClass*, true>(pTarget);
+
+		if (!pTargetObject || !pTargetTechno || !pTargetTechno->Owner)
+			return false;
+
+		if (!pTargetTechno->IsAlive || pTargetTechno->Health <= 0 || pTargetTechno->InLimbo)
+			return false;
+
+		if (pAttacker->Owner->IsAlliedWith(pTargetTechno->Owner))
+			return false;
+
+		return !PhobosFogAutoTarget::IsPhobosFogObjectHardVisibleToHouse(pAttacker->Owner, pTargetObject);
+	}
+}
+
+namespace PhobosFogForceFire
+{
+	static bool TryResolvePhobosFogForceFireTargetCell(AbstractClass* const pTarget, CellStruct* const outCell)
+	{
+		if (!pTarget || !outCell)
+			return false;
+
+		if (const auto pCell = abstract_cast<CellClass*, true>(pTarget))
+		{
+			*outCell = pCell->MapCoords;
+			return true;
+		}
+
+		if (abstract_cast<BuildingClass*, true>(pTarget) || abstract_cast<TechnoClass*, true>(pTarget))
+			return false;
+
+		if (const auto pTerrain = abstract_cast<TerrainClass*, true>(pTarget))
+		{
+			*outCell = pTerrain->GetMapCoords();
+			return true;
+		}
+
+		return false;
+	}
+
+	static bool ShouldBlockFireAtHiddenCell(TechnoClass* const pAttacker, AbstractClass* const pTarget)
+	{
+		const auto pRulesExt = RulesExt::Global();
+
+		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_GateForceFireCells)
+			return false;
+
+		if (!pAttacker || !pAttacker->Owner)
+			return false;
+
+		CellStruct cell {};
+
+		if (!TryResolvePhobosFogForceFireTargetCell(pTarget, &cell))
+			return false;
+
+		if (!MapClass::Instance.TryGetCellAt(cell))
+			return false;
+
+		const int cellIndex = MapClass::GetCellIndex(cell);
+
+		if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
+			return false;
+
+		bool querySucceeded = false;
+		const bool visible = HouseExt::ExtData::IsPhobosFogCellHardVisibleToViewerOrAllies(pAttacker->Owner, cellIndex, querySucceeded);
+
+		return querySucceeded && !visible;
+	}
+}
 
 #pragma region TechnoClass_SelectWeapon
 
@@ -314,6 +408,15 @@ DEFINE_HOOK(0x6FC339, TechnoClass_CanFire, 0x6)
 	GET(WeaponTypeClass*, pWeapon, EDI);
 	GET_STACK(AbstractClass*, pTarget, STACK_OFFSET(0x20, 0x4));
 	GET(TechnoClass*, pTargetTechno, EBP);
+
+	if (PhobosFogAutoFire::ShouldBlockFireAtHiddenObject(pThis, pTarget))
+	{
+		pThis->SetTarget(nullptr);
+		return CannotFire;
+	}
+
+	if (PhobosFogForceFire::ShouldBlockFireAtHiddenCell(pThis, pTarget))
+		return CannotFire;
 
 	// Checking for nullptr is not required here, since the game has already executed them before calling the hook  -- Belonit
 	const auto pWH = pWeapon->Warhead;
