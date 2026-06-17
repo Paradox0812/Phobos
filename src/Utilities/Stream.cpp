@@ -3,6 +3,8 @@
 
 #include <SwizzleManagerClass.h>
 
+#include <cstring>
+
 #include <Objidl.h>
 
 PhobosByteStream::PhobosByteStream(size_t Reserve) : Data(), CurrentOffset(0)
@@ -52,6 +54,20 @@ bool PhobosByteStream::Read(data_t* Value, size_t Size)
 
 	this->CurrentOffset += Size;
 	return ret;
+}
+
+bool PhobosByteStream::Peek(data_t* Value, size_t Size) const
+{
+	if (!Value && Size > 0)
+		return false;
+
+	if (!this->HasRemainingBytes(Size))
+		return false;
+
+	if (Size > 0)
+		std::memcpy(Value, &this->Data[this->CurrentOffset], Size);
+
+	return true;
 }
 
 void PhobosByteStream::Write(const data_t* Value, size_t Size)

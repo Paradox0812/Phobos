@@ -41,6 +41,18 @@ public:
 		return this->CurrentOffset;
 	}
 
+	size_t RemainingBytes() const
+	{
+		return this->CurrentOffset < this->Data.size()
+			? this->Data.size() - this->CurrentOffset
+			: 0u;
+	}
+
+	bool HasRemainingBytes(size_t Size) const
+	{
+		return this->RemainingBytes() >= Size;
+	}
+
 	/**
 	* reads {Length} bytes from {pStm} into its storage
 	*/
@@ -72,6 +84,12 @@ public:
 	bool Read(data_t* Value, size_t Size);
 
 	/**
+	* if it has {Size} bytes left, assigns the next {Size} unread bytes to {Value}
+	* does not move the internal position
+	*/
+	bool Peek(data_t* Value, size_t Size) const;
+
+	/**
 	* ensures there are at least {Size} bytes left in the internal storage, and assigns {Value} casted to byte to that buffer
 	* moves the internal position forward
 	*/
@@ -87,6 +105,18 @@ public:
 		// get address regardless of overloaded & operator
 		auto Bytes = &reinterpret_cast<data_t&>(Value);
 		return this->Read(Bytes, sizeof(T));
+	}
+
+	/**
+	* attempts to peek the data from internal storage into {Value}
+	* does not move the internal position
+	*/
+	template<typename T>
+	bool Peek(T& Value) const
+	{
+		// get address regardless of overloaded & operator
+		auto Bytes = &reinterpret_cast<data_t&>(Value);
+		return this->Peek(Bytes, sizeof(T));
 	}
 
 	/**
@@ -160,6 +190,16 @@ public:
 
 	// helpers
 
+	size_t RemainingBytes() const
+	{
+		return this->Success() ? this->stream->RemainingBytes() : 0u;
+	}
+
+	bool HasRemainingBytes(size_t Size) const
+	{
+		return this->Success() && this->stream->HasRemainingBytes(Size);
+	}
+
 	bool ExpectEndOfBlock() const
 	{
 		if (!this->Success() || this->stream->Size() != this->stream->Offset())
@@ -192,6 +232,16 @@ public:
 			return false;
 		}
 		return true;
+	}
+
+	bool TryPeekBytes(PhobosByteStream::data_t* Value, size_t Size) const
+	{
+		return this->Success() && this->stream->Peek(Value, Size);
+	}
+
+	bool TryPeekUInt32(unsigned int& Value) const
+	{
+		return this->Success() && this->stream->Peek(Value);
 	}
 
 	bool Expect(unsigned int value)
