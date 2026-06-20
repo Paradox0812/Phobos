@@ -793,6 +793,8 @@ DEFINE_HOOK(0x414DA8, AircraftClass_Update_UnlandableDamage, 0x6) // After FootC
 					pThis->Crash(nullptr);
 			}
 		}
+
+		AircraftExt::TryDockedAutoAttack(pThis);
 	}
 
 	return 0;
