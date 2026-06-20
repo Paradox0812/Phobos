@@ -187,6 +187,55 @@ namespace
 		return pThis->Owner->IsAlliedWith(pTarget->Owner) ? "Ally" : "Enemy";
 	}
 
+	bool HasDockedAutoAttackTargetWeightsConfigured(TechnoTypeExt::ExtData* pTypeExt)
+	{
+		return pTypeExt
+			&& (pTypeExt->DockedAircraftAutoAttack_TargetWeight_Aircraft > 0
+				|| pTypeExt->DockedAircraftAutoAttack_TargetWeight_Vehicle > 0
+				|| pTypeExt->DockedAircraftAutoAttack_TargetWeight_Infantry > 0
+				|| pTypeExt->DockedAircraftAutoAttack_TargetWeight_Building > 0
+				|| pTypeExt->DockedAircraftAutoAttack_TargetWeight_Defense > 0
+				|| pTypeExt->DockedAircraftAutoAttack_TargetWeight_Power > 0
+				|| pTypeExt->DockedAircraftAutoAttack_TargetWeight_Factory > 0);
+	}
+
+	int GetDockedAutoAttackTargetCategoryWeight(TechnoTypeExt::ExtData* pTypeExt, TechnoClass* pTarget)
+	{
+		if (!pTypeExt || !pTarget)
+			return 0;
+
+		if (abstract_cast<AircraftClass*, true>(pTarget))
+			return pTypeExt->DockedAircraftAutoAttack_TargetWeight_Aircraft.Get();
+
+		if (abstract_cast<InfantryClass*, true>(pTarget))
+			return pTypeExt->DockedAircraftAutoAttack_TargetWeight_Infantry.Get();
+
+		if (abstract_cast<UnitClass*, true>(pTarget))
+			return pTypeExt->DockedAircraftAutoAttack_TargetWeight_Vehicle.Get();
+
+		if (const auto pBuilding = abstract_cast<BuildingClass*, true>(pTarget))
+		{
+			const auto pBuildingType = pBuilding->Type;
+			int weight = pTypeExt->DockedAircraftAutoAttack_TargetWeight_Building.Get();
+
+			if (pBuildingType)
+			{
+				if (pBuildingType->IsBaseDefense)
+					weight = std::max(weight, pTypeExt->DockedAircraftAutoAttack_TargetWeight_Defense.Get());
+
+				if (pBuildingType->PowerBonus > 0)
+					weight = std::max(weight, pTypeExt->DockedAircraftAutoAttack_TargetWeight_Power.Get());
+
+				if (pBuildingType->Factory != AbstractType::None)
+					weight = std::max(weight, pTypeExt->DockedAircraftAutoAttack_TargetWeight_Factory.Get());
+			}
+
+			return weight;
+		}
+
+		return 0;
+	}
+
 	void LogDockedAutoAttackCandidate(
 		AircraftClass* pThis,
 		TechnoClass* pTarget,
@@ -210,8 +259,12 @@ namespace
 		++stats.CandidateLogs;
 
 		const auto targetCell = pTarget ? pTarget->GetMapCoords() : CellStruct::Empty;
+		const auto pExt = pThis ? TechnoExt::ExtMap.Find(pThis) : nullptr;
+		const auto pTypeExt = pExt ? pExt->TypeExtData : nullptr;
+		const bool targetWeightConfigured = HasDockedAutoAttackTargetWeightsConfigured(pTypeExt);
+		const int targetWeight = GetDockedAutoAttackTargetCategoryWeight(pTypeExt, pTarget);
 
-		Debug::Log("[DockedAircraftAutoAttack][Diag] Candidate Frame=%d Aircraft=%p Target=%p TargetType=%s TargetOwner=%s Relation=%s TargetCell=(%d,%d) DistanceLeptons=%d InRange=%d WeaponIndex=%d TargetIsAir=%d ProjectileAA=%d ProjectileAG=%d FireErrorDiagnostic=%d Accepted=%d RejectReason=%s\n",
+		Debug::Log("[DockedAircraftAutoAttack][Diag] Candidate Frame=%d Aircraft=%p Target=%p TargetType=%s TargetOwner=%s Relation=%s TargetCell=(%d,%d) DistanceLeptons=%d InRange=%d WeaponIndex=%d TargetIsAir=%d ProjectileAA=%d ProjectileAG=%d FireErrorDiagnostic=%d TargetWeightConfigured=%d TargetWeight=%d Accepted=%d RejectReason=%s\n",
 			Unsorted::CurrentFrame,
 			static_cast<void*>(pThis),
 			static_cast<void*>(pTarget),
@@ -227,6 +280,8 @@ namespace
 			projectileAA,
 			projectileAG,
 			static_cast<int>(fireError),
+			targetWeightConfigured,
+			targetWeight,
 			accepted,
 			rejectReason);
 	}
@@ -281,12 +336,18 @@ namespace
 			weaponOrder1);
 	}
 
-	void LogDockedAutoAttackScanEnd(AircraftClass* pThis, const DockedAutoAttackScanStats& stats, const char* result)
+	void LogDockedAutoAttackScanEnd(
+		AircraftClass* pThis,
+		const DockedAutoAttackScanStats& stats,
+		const char* result,
+		TechnoClass* pBestTarget = nullptr,
+		int bestWeight = -1,
+		int bestDistance = -1)
 	{
 		if (!IsDockedAircraftAutoAttackDiagEnabled())
 			return;
 
-		Debug::Log("[DockedAircraftAutoAttack][Diag] ScanEnd Frame=%d Aircraft=%p TotalTechnos=%d AliveTechnos=%d EnemyTechnos=%d InRangeTechnos=%d WeaponChecked=%d ProjectileRejected=%d WeaponUsable=%d FireErrorRejected=%d Accepted=%d Result=%s\n",
+		Debug::Log("[DockedAircraftAutoAttack][Diag] ScanEnd Frame=%d Aircraft=%p TotalTechnos=%d AliveTechnos=%d EnemyTechnos=%d InRangeTechnos=%d WeaponChecked=%d ProjectileRejected=%d WeaponUsable=%d FireErrorRejected=%d Accepted=%d BestTarget=%p BestWeight=%d BestDistance=%d Result=%s\n",
 			Unsorted::CurrentFrame,
 			static_cast<void*>(pThis),
 			stats.TotalTechnos,
@@ -298,6 +359,9 @@ namespace
 			stats.WeaponUsable,
 			stats.FireErrorRejected,
 			stats.Accepted,
+			static_cast<void*>(pBestTarget),
+			bestWeight,
+			bestDistance,
 			result);
 	}
 
@@ -1073,6 +1137,11 @@ AbstractClass* AircraftExt::FindDockedAutoAttackTarget(AircraftClass* pThis)
 	LogDockedAutoAttackScanStart(pThis, center, dockCoords, centerFromDock, range, rangeLeptons);
 
 	DockedAutoAttackScanStats stats;
+	const bool targetWeightConfigured = HasDockedAutoAttackTargetWeightsConfigured(pTypeExt);
+	TechnoClass* pBestTarget = nullptr;
+	int bestWeaponIndex = -1;
+	int bestWeight = -1;
+	int bestDistance = -1;
 
 	for (const auto pTarget : TechnoClass::Array)
 	{
@@ -1179,10 +1248,35 @@ AbstractClass* AircraftExt::FindDockedAutoAttackTarget(AircraftClass* pThis)
 			++stats.Accepted;
 			LogDockedAutoAttackCandidate(pThis, pTarget, weaponIndex, fireErrorDiagnostic, distance, true,
 				targetIsAir, projectileAA, projectileAG, true, "Accepted", stats);
-			LogDockedAutoAttackScanEnd(pThis, stats, "Accepted");
-			pExt->CurrentAircraftWeaponIndex = weaponIndex;
-			return pTarget;
+
+			const int targetWeight = GetDockedAutoAttackTargetCategoryWeight(pTypeExt, pTarget);
+
+			if (!targetWeightConfigured)
+			{
+				LogDockedAutoAttackScanEnd(pThis, stats, "Accepted", pTarget, targetWeight, distance);
+				pExt->CurrentAircraftWeaponIndex = weaponIndex;
+				return pTarget;
+			}
+
+			if (!pBestTarget
+				|| targetWeight > bestWeight
+				|| (targetWeight == bestWeight && distance < bestDistance))
+			{
+				pBestTarget = pTarget;
+				bestWeaponIndex = weaponIndex;
+				bestWeight = targetWeight;
+				bestDistance = distance;
+			}
+
+			break;
 		}
+	}
+
+	if (targetWeightConfigured && pBestTarget)
+	{
+		LogDockedAutoAttackScanEnd(pThis, stats, "AcceptedWeighted", pBestTarget, bestWeight, bestDistance);
+		pExt->CurrentAircraftWeaponIndex = bestWeaponIndex;
+		return pBestTarget;
 	}
 
 	LogDockedAutoAttackScanEnd(pThis, stats, "NoTarget");
