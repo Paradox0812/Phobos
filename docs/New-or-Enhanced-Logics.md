@@ -519,6 +519,47 @@ Image.ConditionRed=           ; AircraftType entry
 Note that the AircraftTypes had to be defined under [AircraftTypes].
 ```
 
+### Docked aircraft auto attack
+
+- Aircraft docked at a valid dock building can periodically scan for enemy targets and leave the dock to attack them when both global and AircraftType settings are enabled.
+  - `DockedAircraftAutoAttack` under `[General]` enables the feature globally. It is disabled by default.
+  - `DockedAircraftAutoAttack.Interval` under `[General]` sets the default scan interval in frames.
+  - `DockedAircraftAutoAttack` under an AircraftType enables the feature for that AircraftType.
+  - `DockedAircraftAutoAttack.Range` sets the docked auto attack scan radius in cells. It is not weapon range.
+  - `DockedAircraftAutoAttack.Interval` under an AircraftType overrides the global scan interval. Negative values use the global interval. This controls scanning only and is not a firing cooldown or reload rate.
+  - `DockedAircraftAutoAttack.MinAmmo` sets the minimum vanilla ammo count required before scanning. Phase 1 uses the original single `TechnoClass::Ammo` value.
+  - `DockedAircraftAutoAttack.RequireVisibleTarget` determines whether this AircraftType requires a PhobosFog Visible target for docked auto attack. It defaults to true.
+  - `DockedAircraftAutoAttack.WeaponOrder` sets the weapon slot order to test. Phase 1 supports weapon slots 0 and 1 only.
+  - `DockedAircraftAutoAttack.DisableOnDeploy` is a reserved runtime field for later deploy-toggle work and does not currently add deploy switching behavior.
+- Phase 1 uses projectile `AA`/`AG` flags as a coarse target-category filter before dispatching the aircraft.
+- `DockedAircraftAutoAttack.RequireVisibleTarget` only affects docked auto attack. It does not affect manual attack orders, normal weapon firing, or ordinary Guard behavior.
+  - When `PhobosFog.Enabled=false`, this setting does not block targets because there is no PhobosFog Visible-state requirement.
+  - When `PhobosFog.Enabled=true` and `DockedAircraftAutoAttack.RequireVisibleTarget=true`, only targets in cells hard-visible to the aircraft owner or allied vision are accepted. Explored and Unknown cells do not trigger docked auto attack.
+  - When `PhobosFog.Enabled=true` and `DockedAircraftAutoAttack.RequireVisibleTarget=false`, this AircraftType ignores the PhobosFog Visible requirement for docked auto attack. All other filters still apply, including `Range`, ownership, ammo, projectile `AA`/`AG` compatibility, and dock lifecycle checks.
+  - This setting does not change the aircraft's `Sight`, reveal the map, or modify PhobosFog state.
+  - For building targets, any visible foundation cell is enough for the target to be accepted. If foundation information is unavailable, the building's current cell is used as a fallback.
+- Before automatic attack dispatch, the aircraft sends `RadioCommand::NotifyUnlink` to release the normal dock link, then continues through the standard aircraft attack mission flow.
+- Phase 1 does not add dual ammo, target weights, UI indicators, deploy switching, docked in-place firing, or AircraftWeaponAmmo.
+- Team aircraft, airstrikes, and spawned aircraft are not taken over by this feature.
+- Target selection is intentionally minimal. It checks valid enemy targets within `Range`, excludes neutral and allied targets, requires projectile AA/AG compatibility for the selected target category, and then dispatches the standard aircraft attack mission.
+- R4.3 local manual testing confirmed the basic docked attack, return, reload, and re-dispatch path. Broader mod compatibility still requires local validation.
+
+In `rulesmd.ini`:
+```ini
+[General]
+DockedAircraftAutoAttack=false       ; boolean
+DockedAircraftAutoAttack.Interval=15 ; integer, frames
+
+[SOMEAIRCRAFT]                               ; AircraftType
+DockedAircraftAutoAttack=false               ; boolean
+DockedAircraftAutoAttack.Range=0             ; integer, cells
+DockedAircraftAutoAttack.Interval=-1         ; integer, frames, -1 to use [General] -> DockedAircraftAutoAttack.Interval
+DockedAircraftAutoAttack.MinAmmo=1           ; integer
+DockedAircraftAutoAttack.RequireVisibleTarget=true ; boolean
+DockedAircraftAutoAttack.WeaponOrder=0,1     ; list of integers
+DockedAircraftAutoAttack.DisableOnDeploy=false ; boolean, reserved for later deploy-toggle behavior
+```
+
 ## Animations
 
 ### Anim-to-Unit
