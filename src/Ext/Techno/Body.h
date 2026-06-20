@@ -9,6 +9,13 @@
 
 class BulletClass;
 
+enum class DockedAircraftAutoAttackState : unsigned char
+{
+	None = 0,
+	Dispatching = 1,
+	LockedReloading = 2
+};
+
 class TechnoExt
 {
 public:
@@ -44,6 +51,11 @@ public:
 		int Strafe_BombsDroppedThisRound;
 		CellClass* Strafe_TargetCell;
 		int CurrentAircraftWeaponIndex;
+		int DockedAircraftAutoAttack_LastScanFrame;
+		bool DockedAircraftAutoAttack_DisabledByDeploy;
+		DockedAircraftAutoAttackState DockedAircraftAutoAttack_State;
+		AbstractClass* DockedAircraftAutoAttack_Target;
+		int DockedAircraftAutoAttack_LastDispatchFrame;
 		bool IsInTunnel;
 		bool IsBurrowed;
 		bool HasBeenPlacedOnMap; // Set to true on first Unlimbo() call.
@@ -130,6 +142,11 @@ public:
 			, Strafe_BombsDroppedThisRound { 0 }
 			, Strafe_TargetCell { nullptr }
 			, CurrentAircraftWeaponIndex {}
+			, DockedAircraftAutoAttack_LastScanFrame { 0 }
+			, DockedAircraftAutoAttack_DisabledByDeploy { false }
+			, DockedAircraftAutoAttack_State { DockedAircraftAutoAttackState::None }
+			, DockedAircraftAutoAttack_Target { nullptr }
+			, DockedAircraftAutoAttack_LastDispatchFrame { 0 }
 			, IsInTunnel { false }
 			, IsBurrowed { false }
 			, HasBeenPlacedOnMap { false }

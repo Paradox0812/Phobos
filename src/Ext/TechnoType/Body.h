@@ -420,6 +420,14 @@ public:
 		Valueable<bool> Harvester_CanGuardArea_RequireTarget;
 		Nullable<bool> HarvesterScanAfterUnload;
 
+		Valueable<bool> DockedAircraftAutoAttack;
+		Valueable<int> DockedAircraftAutoAttack_Range;
+		Valueable<int> DockedAircraftAutoAttack_Interval;
+		Valueable<int> DockedAircraftAutoAttack_MinAmmo;
+		Valueable<bool> DockedAircraftAutoAttack_RequireVisibleTarget;
+		ValueableVector<int> DockedAircraftAutoAttack_WeaponOrder;
+		Valueable<bool> DockedAircraftAutoAttack_DisableOnDeploy;
+
 		Nullable<bool> ExtendedAircraftMissions;
 		Nullable<bool> ExtendedAircraftMissions_SmoothMoving;
 		Nullable<bool> ExtendedAircraftMissions_EarlyDescend;
@@ -883,6 +891,13 @@ public:
 			, Harvester_CanGuardArea_RequireTarget { false }
 			, HarvesterScanAfterUnload {}
 
+			, DockedAircraftAutoAttack { false }
+			, DockedAircraftAutoAttack_Range { 0 }
+			, DockedAircraftAutoAttack_Interval { -1 }
+			, DockedAircraftAutoAttack_MinAmmo { 1 }
+			, DockedAircraftAutoAttack_RequireVisibleTarget { true }
+			, DockedAircraftAutoAttack_WeaponOrder {}
+			, DockedAircraftAutoAttack_DisableOnDeploy { false }
 			, ExtendedAircraftMissions {}
 			, ExtendedAircraftMissions_SmoothMoving {}
 			, ExtendedAircraftMissions_EarlyDescend {}
@@ -972,7 +987,10 @@ public:
 
 			, HarvesterLoadRate {}
 			, HarvesterDumpRate {}
-		{ }
+		{
+			this->DockedAircraftAutoAttack_WeaponOrder.emplace_back(0);
+			this->DockedAircraftAutoAttack_WeaponOrder.emplace_back(1);
+		}
 
 		virtual ~ExtData() = default;
 		virtual void LoadFromINIFile(CCINIClass* pINI) override;

@@ -94,6 +94,8 @@ public:
 		Valueable<double> HeightShadowScaling_MinScale;
 		double AirShadowBaseScale_log;
 
+		Valueable<bool> DockedAircraftAutoAttack;
+		Valueable<int> DockedAircraftAutoAttack_Interval;
 		Valueable<bool> ExtendedAircraftMissions;
 		Valueable<int> ExtendedAircraftMissions_UnlandDamage;
 		Valueable<bool> AmphibiousEnter;
@@ -498,6 +500,8 @@ public:
 			, HeightShadowScaling_MinScale { 0.0 }
 			, AirShadowBaseScale_log { 0.693376137 }
 
+			, DockedAircraftAutoAttack { false }
+			, DockedAircraftAutoAttack_Interval { 15 }
 			, ExtendedAircraftMissions { false }
 			, ExtendedAircraftMissions_UnlandDamage { -1 }
 			, AmphibiousEnter { false }

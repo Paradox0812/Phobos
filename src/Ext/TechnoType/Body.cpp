@@ -1127,6 +1127,37 @@ void TechnoTypeExt::ExtData::LoadFromINIFile(CCINIClass* const pINI)
 	this->Harvester_CanGuardArea_RequireTarget.Read(exINI, pSection, "Harvester.CanGuardArea.RequireTarget");
 	this->HarvesterScanAfterUnload.Read(exINI, pSection, "HarvesterScanAfterUnload");
 
+	this->DockedAircraftAutoAttack.Read(exINI, pSection, "DockedAircraftAutoAttack");
+	this->DockedAircraftAutoAttack_Range.Read(exINI, pSection, "DockedAircraftAutoAttack.Range");
+	this->DockedAircraftAutoAttack_Range = Math::max(this->DockedAircraftAutoAttack_Range.Get(), 0);
+	this->DockedAircraftAutoAttack_Interval.Read(exINI, pSection, "DockedAircraftAutoAttack.Interval");
+
+	if (this->DockedAircraftAutoAttack_Interval < 0)
+		this->DockedAircraftAutoAttack_Interval = -1;
+	else
+		this->DockedAircraftAutoAttack_Interval = Math::max(this->DockedAircraftAutoAttack_Interval.Get(), 1);
+
+	this->DockedAircraftAutoAttack_MinAmmo.Read(exINI, pSection, "DockedAircraftAutoAttack.MinAmmo");
+	this->DockedAircraftAutoAttack_MinAmmo = Math::max(this->DockedAircraftAutoAttack_MinAmmo.Get(), 0);
+	this->DockedAircraftAutoAttack_RequireVisibleTarget.Read(exINI, pSection, "DockedAircraftAutoAttack.RequireVisibleTarget");
+	this->DockedAircraftAutoAttack_WeaponOrder.Read(exINI, pSection, "DockedAircraftAutoAttack.WeaponOrder");
+	ValueableVector<int> weaponOrder;
+
+	for (const int weaponIndex : this->DockedAircraftAutoAttack_WeaponOrder)
+	{
+		if ((weaponIndex == 0 || weaponIndex == 1) && !weaponOrder.Contains(weaponIndex))
+			weaponOrder.emplace_back(weaponIndex);
+	}
+
+	if (weaponOrder.empty())
+	{
+		weaponOrder.emplace_back(0);
+		weaponOrder.emplace_back(1);
+	}
+
+	this->DockedAircraftAutoAttack_WeaponOrder = weaponOrder;
+	this->DockedAircraftAutoAttack_DisableOnDeploy.Read(exINI, pSection, "DockedAircraftAutoAttack.DisableOnDeploy");
+
 	this->ExtendedAircraftMissions.Read(exINI, pSection, "ExtendedAircraftMissions");
 	this->ExtendedAircraftMissions_SmoothMoving.Read(exINI, pSection, "ExtendedAircraftMissions.SmoothMoving");
 	this->ExtendedAircraftMissions_EarlyDescend.Read(exINI, pSection, "ExtendedAircraftMissions.EarlyDescend");
@@ -1847,6 +1878,14 @@ void TechnoTypeExt::ExtData::Serialize(T& Stm)
 		.Process(this->Harvester_CanGuardArea)
 		.Process(this->Harvester_CanGuardArea_RequireTarget)
 		.Process(this->HarvesterScanAfterUnload)
+
+		.Process(this->DockedAircraftAutoAttack)
+		.Process(this->DockedAircraftAutoAttack_Range)
+		.Process(this->DockedAircraftAutoAttack_Interval)
+		.Process(this->DockedAircraftAutoAttack_MinAmmo)
+		.Process(this->DockedAircraftAutoAttack_RequireVisibleTarget)
+		.Process(this->DockedAircraftAutoAttack_WeaponOrder)
+		.Process(this->DockedAircraftAutoAttack_DisableOnDeploy)
 
 		.Process(this->ExtendedAircraftMissions)
 		.Process(this->ExtendedAircraftMissions_SmoothMoving)

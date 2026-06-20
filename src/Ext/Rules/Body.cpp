@@ -208,6 +208,10 @@ void RulesExt::ExtData::LoadBeforeTypeData(RulesClass* pThis, CCINIClass* pINI)
 		this->HeightShadowScaling = false;
 	this->HeightShadowScaling_MinScale.Read(exINI, GameStrings::AudioVisual, "HeightShadowScaling.MinScale");
 
+	this->DockedAircraftAutoAttack.Read(exINI, GameStrings::General, "DockedAircraftAutoAttack");
+	this->DockedAircraftAutoAttack_Interval.Read(exINI, GameStrings::General, "DockedAircraftAutoAttack.Interval");
+	this->DockedAircraftAutoAttack_Interval = Math::max(this->DockedAircraftAutoAttack_Interval.Get(), 1);
+
 	this->ExtendedAircraftMissions.Read(exINI, GameStrings::General, "ExtendedAircraftMissions");
 	this->ExtendedAircraftMissions_UnlandDamage.Read(exINI, GameStrings::General, "ExtendedAircraftMissions.UnlandDamage");
 	this->AmphibiousEnter.Read(exINI, GameStrings::General, "AmphibiousEnter");
@@ -874,6 +878,8 @@ void RulesExt::ExtData::Serialize(T& Stm)
 		.Process(this->AirShadowBaseScale_log)
 		.Process(this->HeightShadowScaling)
 		.Process(this->HeightShadowScaling_MinScale)
+		.Process(this->DockedAircraftAutoAttack)
+		.Process(this->DockedAircraftAutoAttack_Interval)
 		.Process(this->ExtendedAircraftMissions)
 		.Process(this->ExtendedAircraftMissions_UnlandDamage)
 		.Process(this->AmphibiousEnter)
