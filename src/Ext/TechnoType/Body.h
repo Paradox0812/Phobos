@@ -425,6 +425,13 @@ public:
 		Valueable<int> DockedAircraftAutoAttack_Interval;
 		Valueable<int> DockedAircraftAutoAttack_MinAmmo;
 		Valueable<bool> DockedAircraftAutoAttack_RequireVisibleTarget;
+		Valueable<int> DockedAircraftAutoAttack_TargetWeight_Aircraft;
+		Valueable<int> DockedAircraftAutoAttack_TargetWeight_Vehicle;
+		Valueable<int> DockedAircraftAutoAttack_TargetWeight_Infantry;
+		Valueable<int> DockedAircraftAutoAttack_TargetWeight_Building;
+		Valueable<int> DockedAircraftAutoAttack_TargetWeight_Defense;
+		Valueable<int> DockedAircraftAutoAttack_TargetWeight_Power;
+		Valueable<int> DockedAircraftAutoAttack_TargetWeight_Factory;
 		ValueableVector<int> DockedAircraftAutoAttack_WeaponOrder;
 		Valueable<bool> DockedAircraftAutoAttack_DisableOnDeploy;
 
@@ -896,6 +903,13 @@ public:
 			, DockedAircraftAutoAttack_Interval { -1 }
 			, DockedAircraftAutoAttack_MinAmmo { 1 }
 			, DockedAircraftAutoAttack_RequireVisibleTarget { true }
+			, DockedAircraftAutoAttack_TargetWeight_Aircraft { 0 }
+			, DockedAircraftAutoAttack_TargetWeight_Vehicle { 0 }
+			, DockedAircraftAutoAttack_TargetWeight_Infantry { 0 }
+			, DockedAircraftAutoAttack_TargetWeight_Building { 0 }
+			, DockedAircraftAutoAttack_TargetWeight_Defense { 0 }
+			, DockedAircraftAutoAttack_TargetWeight_Power { 0 }
+			, DockedAircraftAutoAttack_TargetWeight_Factory { 0 }
 			, DockedAircraftAutoAttack_WeaponOrder {}
 			, DockedAircraftAutoAttack_DisableOnDeploy { false }
 			, ExtendedAircraftMissions {}

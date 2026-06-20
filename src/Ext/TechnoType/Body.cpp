@@ -1140,6 +1140,20 @@ void TechnoTypeExt::ExtData::LoadFromINIFile(CCINIClass* const pINI)
 	this->DockedAircraftAutoAttack_MinAmmo.Read(exINI, pSection, "DockedAircraftAutoAttack.MinAmmo");
 	this->DockedAircraftAutoAttack_MinAmmo = Math::max(this->DockedAircraftAutoAttack_MinAmmo.Get(), 0);
 	this->DockedAircraftAutoAttack_RequireVisibleTarget.Read(exINI, pSection, "DockedAircraftAutoAttack.RequireVisibleTarget");
+	this->DockedAircraftAutoAttack_TargetWeight_Aircraft.Read(exINI, pSection, "DockedAircraftAutoAttack.TargetWeight.Aircraft");
+	this->DockedAircraftAutoAttack_TargetWeight_Aircraft = Math::clamp(this->DockedAircraftAutoAttack_TargetWeight_Aircraft.Get(), 0, 100000);
+	this->DockedAircraftAutoAttack_TargetWeight_Vehicle.Read(exINI, pSection, "DockedAircraftAutoAttack.TargetWeight.Vehicle");
+	this->DockedAircraftAutoAttack_TargetWeight_Vehicle = Math::clamp(this->DockedAircraftAutoAttack_TargetWeight_Vehicle.Get(), 0, 100000);
+	this->DockedAircraftAutoAttack_TargetWeight_Infantry.Read(exINI, pSection, "DockedAircraftAutoAttack.TargetWeight.Infantry");
+	this->DockedAircraftAutoAttack_TargetWeight_Infantry = Math::clamp(this->DockedAircraftAutoAttack_TargetWeight_Infantry.Get(), 0, 100000);
+	this->DockedAircraftAutoAttack_TargetWeight_Building.Read(exINI, pSection, "DockedAircraftAutoAttack.TargetWeight.Building");
+	this->DockedAircraftAutoAttack_TargetWeight_Building = Math::clamp(this->DockedAircraftAutoAttack_TargetWeight_Building.Get(), 0, 100000);
+	this->DockedAircraftAutoAttack_TargetWeight_Defense.Read(exINI, pSection, "DockedAircraftAutoAttack.TargetWeight.Defense");
+	this->DockedAircraftAutoAttack_TargetWeight_Defense = Math::clamp(this->DockedAircraftAutoAttack_TargetWeight_Defense.Get(), 0, 100000);
+	this->DockedAircraftAutoAttack_TargetWeight_Power.Read(exINI, pSection, "DockedAircraftAutoAttack.TargetWeight.Power");
+	this->DockedAircraftAutoAttack_TargetWeight_Power = Math::clamp(this->DockedAircraftAutoAttack_TargetWeight_Power.Get(), 0, 100000);
+	this->DockedAircraftAutoAttack_TargetWeight_Factory.Read(exINI, pSection, "DockedAircraftAutoAttack.TargetWeight.Factory");
+	this->DockedAircraftAutoAttack_TargetWeight_Factory = Math::clamp(this->DockedAircraftAutoAttack_TargetWeight_Factory.Get(), 0, 100000);
 	this->DockedAircraftAutoAttack_WeaponOrder.Read(exINI, pSection, "DockedAircraftAutoAttack.WeaponOrder");
 	ValueableVector<int> weaponOrder;
 
@@ -1884,6 +1898,13 @@ void TechnoTypeExt::ExtData::Serialize(T& Stm)
 		.Process(this->DockedAircraftAutoAttack_Interval)
 		.Process(this->DockedAircraftAutoAttack_MinAmmo)
 		.Process(this->DockedAircraftAutoAttack_RequireVisibleTarget)
+		.Process(this->DockedAircraftAutoAttack_TargetWeight_Aircraft)
+		.Process(this->DockedAircraftAutoAttack_TargetWeight_Vehicle)
+		.Process(this->DockedAircraftAutoAttack_TargetWeight_Infantry)
+		.Process(this->DockedAircraftAutoAttack_TargetWeight_Building)
+		.Process(this->DockedAircraftAutoAttack_TargetWeight_Defense)
+		.Process(this->DockedAircraftAutoAttack_TargetWeight_Power)
+		.Process(this->DockedAircraftAutoAttack_TargetWeight_Factory)
 		.Process(this->DockedAircraftAutoAttack_WeaponOrder)
 		.Process(this->DockedAircraftAutoAttack_DisableOnDeploy)
 
