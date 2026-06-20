@@ -8,6 +8,8 @@ R5 is a stabilization-only pass. It does not add behavior. It only disables temp
 
 Phase 1 plus `DockedAircraftAutoAttack.RequireVisibleTarget` is now closed as a manually validated baseline. R4.3 NotifyUnlink dispatch, R5 diagnostics cleanup, and RequireVisibleTarget V1/V2/V3 are complete.
 
+TargetWeight is now also closed through TW4 docs-only. TW1 fields-only is completed and committed. TW2/TW3 scoring helper and weighted selection are completed, committed, and manually validated. TW4 docs-only is completed in this document set.
+
 ## Phase Timeline
 
 - Phase 1A fields-only: added global, AircraftType, and runtime fields with defaults, INI loading, cleanup, and serialization where required.
@@ -24,24 +26,27 @@ Phase 1 plus `DockedAircraftAutoAttack.RequireVisibleTarget` is now closed as a 
 - RequireVisibleTarget V1: added the AircraftType-level `DockedAircraftAutoAttack.RequireVisibleTarget=true` field, default, INI loading, and serialization.
 - RequireVisibleTarget V2: connected PhobosFog visibility filtering to normal scan and LockedReloading marker target validation without modifying PhobosFog implementation files.
 - RequireVisibleTarget V3: updated user documentation, handoff notes, and runtime lifecycle notes.
+- TargetWeight TW1: added AircraftType-level `DockedAircraftAutoAttack.TargetWeight.*` fields, defaults, INI loading, clamping, and serialization.
+- TargetWeight TW2/TW3: added scan-time category scoring and weighted target selection after existing legality filters.
+- TargetWeight TW4: updated user documentation, handoff notes, and runtime lifecycle notes.
 
-All items above through RequireVisibleTarget V3 are considered complete for Phase 1 handoff. Manual testing confirmed the R4.3 NotifyUnlink dispatch path, the R5 diagnostic cleanup default behavior, and the RequireVisibleTarget V1/V2/V3 configuration and behavior path.
+All items above through TargetWeight TW4 are considered complete for Phase 1 handoff. Manual testing confirmed the R4.3 NotifyUnlink dispatch path, the R5 diagnostic cleanup default behavior, the RequireVisibleTarget V1/V2/V3 configuration and behavior path, and the TargetWeight weighted selection path.
 
 ## Modified Files
 
 - `src/Ext/Rules/Body.h` and `src/Ext/Rules/Body.cpp`: global configuration fields, defaults, INI loading, cleanup, and serialization for DockedAircraftAutoAttack.
-- `src/Ext/TechnoType/Body.h` and `src/Ext/TechnoType/Body.cpp`: AircraftType-level fields, defaults, INI loading, cleanup, and serialization, including `DockedAircraftAutoAttack.RequireVisibleTarget`.
+- `src/Ext/TechnoType/Body.h` and `src/Ext/TechnoType/Body.cpp`: AircraftType-level fields, defaults, INI loading, cleanup, and serialization, including `DockedAircraftAutoAttack.RequireVisibleTarget` and `DockedAircraftAutoAttack.TargetWeight.*`.
 - `src/Ext/Techno/Body.h` and `src/Ext/Techno/Body.cpp`: runtime fields for scan timing, deploy-disable state, feature state, target marker, and last dispatch frame.
-- `src/Ext/Aircraft/Body.cpp`: minimal scan and dispatch loop, range semantics, projectile AA/AG filtering, neutral/allied filtering, RequireVisibleTarget filtering, LockedReloading overlay, safe marker target lookup, NotifyUnlink dispatch, and compile-time diagnostic gates.
+- `src/Ext/Aircraft/Body.cpp`: minimal scan and dispatch loop, range semantics, projectile AA/AG filtering, neutral/allied filtering, RequireVisibleTarget filtering, TargetWeight scoring, LockedReloading overlay, safe marker target lookup, NotifyUnlink dispatch, and compile-time diagnostic gates.
 - `docs/New-or-Enhanced-Logics.md`: user-facing Phase 1 documentation.
 - `docs/Phobos_DockedAircraftAutoAttack_Phase1_Handoff.md`: this handoff.
 - `docs/Phobos_DockedAircraftAutoAttack_Runtime_Lifecycle_Notes.md`: developer notes for the docked aircraft lifecycle.
 
 ## New INI Tags
 
-No new INI tags were added by V3 docs.
+No new INI tags were added by TW4 docs.
 
-Phase 1 currently uses these tags:
+Phase 1 plus TargetWeight currently uses these tags:
 
 ```ini
 [General]
@@ -54,6 +59,13 @@ DockedAircraftAutoAttack.Range=0
 DockedAircraftAutoAttack.Interval=-1
 DockedAircraftAutoAttack.MinAmmo=1
 DockedAircraftAutoAttack.RequireVisibleTarget=true
+DockedAircraftAutoAttack.TargetWeight.Aircraft=0
+DockedAircraftAutoAttack.TargetWeight.Vehicle=0
+DockedAircraftAutoAttack.TargetWeight.Infantry=0
+DockedAircraftAutoAttack.TargetWeight.Building=0
+DockedAircraftAutoAttack.TargetWeight.Defense=0
+DockedAircraftAutoAttack.TargetWeight.Power=0
+DockedAircraftAutoAttack.TargetWeight.Factory=0
 DockedAircraftAutoAttack.WeaponOrder=0,1
 DockedAircraftAutoAttack.DisableOnDeploy=false
 ```
@@ -71,6 +83,11 @@ DockedAircraftAutoAttack.DisableOnDeploy=false
 - When PhobosFog is enabled and `DockedAircraftAutoAttack.RequireVisibleTarget=false`, the AircraftType ignores the PhobosFog Visible requirement for docked auto attack.
 - Explored and Unknown cells do not trigger docked auto attack when the Visible requirement is active.
 - Building targets are accepted if any covered foundation cell is visible. If foundation information is unavailable, the building's current cell is used as a fallback.
+- All `DockedAircraftAutoAttack.TargetWeight.*` values default to 0. All-zero weights preserve the Phase 1 first-accepted target selection baseline.
+- When any TargetWeight value is greater than 0, target selection uses `score = categoryWeight` after all legality filters pass.
+- Higher TargetWeight score wins. If scores are equal, the nearer target wins. If both score and distance are equal, the first accepted target is kept.
+- Building TargetWeight uses the maximum matching category value. `Defense` uses `BuildingTypeClass::IsBaseDefense`, `Power` uses `BuildingTypeClass::PowerBonus > 0`, and `Factory` uses `BuildingTypeClass::Factory != AbstractType::None`.
+- `DockedAircraftAutoAttack.RequireVisibleTarget` filtering runs before TargetWeight scoring, so invisible targets do not enter scoring when the Visible requirement is active.
 - `DockedAircraftAutoAttack.WeaponOrder` selects weapon slot 0 and 1 test order only.
 - The scan loop accepts valid enemy targets inside `Range` with an available weapon slot from `WeaponOrder`.
 - Neutral and allied targets are rejected.
@@ -94,6 +111,9 @@ Manual testing has passed for the current Phase 1 baseline:
 - With `PhobosFog.Enabled=true` and `DockedAircraftAutoAttack.RequireVisibleTarget=true`, Visible targets trigger auto attack while Explored and Unknown targets do not.
 - With `PhobosFog.Enabled=true` and `DockedAircraftAutoAttack.RequireVisibleTarget=false`, the AircraftType ignores the Visible requirement but keeps the other filters.
 - LockedReloading and marker target re-dispatch honor the same RequireVisibleTarget policy.
+- With all TargetWeight values at 0, target selection keeps the Phase 1 first-accepted baseline.
+- With configured TargetWeight values, valid targets with higher category score are selected first, and equal scores use distance as a deterministic tie-breaker.
+- LockedReloading does not retarget to a higher-score target while waiting for reload.
 
 Additional regression coverage is still recommended before expanding the feature:
 
@@ -109,7 +129,7 @@ Additional regression coverage is still recommended before expanding the feature
 
 - No new hook.
 - No PhobosFog implementation file changes.
-- No target weight system.
+- No `RetargetOnHigherPriority`.
 - No dual ammo or `AircraftWeaponAmmo`.
 - No UI or cameo ammo display.
 - No deploy-toggle behavior beyond the existing reserved runtime field.
@@ -122,6 +142,7 @@ Additional regression coverage is still recommended before expanding the feature
 - Queueing `Mission::Attack` alone can leave the aircraft in `Mission::Sleep` with the dock link still present.
 - NotifyUnlink is the key behavior that mirrors the player-command path closely enough for the dock to release the aircraft.
 - `DockedAircraftAutoAttack.RequireVisibleTarget` is target validity policy only. It does not affect manual attacks, normal weapon firing, ordinary Guard behavior, aircraft Sight, map reveal, or PhobosFog state refresh.
+- `DockedAircraftAutoAttack.TargetWeight.*` is scan-time selection policy only. It does not affect manual attacks, ordinary Guard behavior, normal weapon targeting, dock release, NotifyUnlink, reload timing, or marker target safety.
 - Owner plus allied visibility uses `HouseExt::ExtData::IsPhobosFogCellHardVisibleToViewerOrAllies`.
 - The feature state is an overlay on top of vanilla aircraft missions. It tracks whether the feature is dispatching or waiting for reload without replacing the base mission system.
 - The feature-owned target marker is runtime-only and is not serialized as a pointer. It is validated through `TechnoClass::Array` before reuse.
@@ -136,6 +157,6 @@ Additional regression coverage is still recommended before expanding the feature
 
 ## Suggested Next Phases
 
-- Phase 1E: design TargetWeight only after a separate contract is approved.
+- TW4 follow-up: commit docs-only changes after review.
 - Phase 1F: decide whether to remove temporary diagnostics entirely or keep a formal developer-only diagnostic gate.
 - Phase 2A: draft the `AircraftWeaponAmmo` contract only after a separate ammo-system contract is approved.

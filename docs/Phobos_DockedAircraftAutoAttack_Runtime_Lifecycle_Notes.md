@@ -6,6 +6,8 @@ This document records the Phase 1 runtime lifecycle findings for DockedAircraftA
 
 Phase 1 plus `DockedAircraftAutoAttack.RequireVisibleTarget` is now closed as a manually validated baseline. R4.3 NotifyUnlink dispatch, R5 diagnostics cleanup, and RequireVisibleTarget V1/V2/V3 have all been completed and manually tested.
 
+TargetWeight TW1 through TW4 is also complete. It adds scan-time target priority only and does not change the dock release or re-dispatch lifecycle.
+
 ## Why Docked Aircraft Are Special
 
 Airport-bound aircraft can sit in `Mission::Sleep` while still linked to their dock building through the radio system. A normal target assignment is not enough to make every docked aircraft leave the pad. The dock link can keep the aircraft physically parked even when the queued mission changes to attack.
@@ -60,6 +62,34 @@ This visibility policy does not affect player manual attack orders, normal weapo
 
 The owner plus allied visibility query uses `HouseExt::ExtData::IsPhobosFogCellHardVisibleToViewerOrAllies` and does not modify PhobosFog implementation files.
 
+## TargetWeight Selection Layer
+
+`DockedAircraftAutoAttack.TargetWeight.*` is a scan-time selection layer. It runs after the existing legality filters and before the first automatic dispatch.
+
+The filtering order remains:
+
+1. Basic target validity.
+2. Enemy, neutral, and allied relation checks.
+3. `DockedAircraftAutoAttack.Range`.
+4. `DockedAircraftAutoAttack.RequireVisibleTarget` and PhobosFog visibility policy.
+5. Projectile `AA`/`AG` compatibility.
+6. Weapon slot availability from `DockedAircraftAutoAttack.WeaponOrder`.
+7. TargetWeight scoring.
+
+TargetWeight does not bypass any legality filter. A high-weight target that is out of range, invisible under the active visibility policy, allied, neutral, or projectile-incompatible is rejected before scoring.
+
+When all TargetWeight values are 0, the scan keeps the Phase 1 first-accepted target selection behavior. When any TargetWeight value is greater than 0, accepted targets are scored by `score = categoryWeight`.
+
+The tie-break rule is deterministic:
+
+1. Higher score wins.
+2. If score is equal, the nearer target wins.
+3. If score and distance are both equal, the first accepted target is kept.
+
+TargetWeight does not modify the dock link, `RadioCommand::NotifyUnlink`, wakeup, destination, mission queueing, re-dispatch cooldown, marker target safety, or PhobosFog state refresh.
+
+Once the aircraft enters `Dispatching` or `LockedReloading`, the feature continues to track the existing marker target. It does not redirect the aircraft to a newly appeared higher-priority target during reload. `RetargetOnHigherPriority` is not supported.
+
 ## Serialization Boundary
 
 The target marker is runtime-only and is not serialized as a pointer. This avoids persisting a raw object pointer across save/load boundaries.
@@ -91,12 +121,15 @@ The current manually validated baseline covers these scenarios:
 - With `PhobosFog.Enabled=true` and `DockedAircraftAutoAttack.RequireVisibleTarget=true`, only Visible targets trigger docked auto attack. Explored and Unknown targets do not trigger it.
 - With `PhobosFog.Enabled=true` and `DockedAircraftAutoAttack.RequireVisibleTarget=false`, that AircraftType ignores the PhobosFog Visible requirement for docked auto attack while retaining range, relation, ammo, weapon slot, and projectile compatibility checks.
 - LockedReloading re-dispatch validates the remembered marker target through the same target safety and visibility policy.
+- TargetWeight keeps first-accepted selection when all category weights are 0.
+- TargetWeight selects the highest-scoring accepted target when category weights are configured, with distance as a deterministic tie-breaker.
+- TargetWeight does not retarget during LockedReloading.
 
 ## Future Boundaries
 
 Future phases should keep these boundaries separate:
 
-- Target weighting: target selection priority only.
+- Target weighting: completed as scan-time target selection priority only.
 - `AircraftWeaponAmmo`: separate ammo storage and UI contract only.
 - Deploy switching: only after a dedicated deploy-state contract.
 

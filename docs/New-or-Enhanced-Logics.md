@@ -529,6 +529,7 @@ Note that the AircraftTypes had to be defined under [AircraftTypes].
   - `DockedAircraftAutoAttack.Interval` under an AircraftType overrides the global scan interval. Negative values use the global interval. This controls scanning only and is not a firing cooldown or reload rate.
   - `DockedAircraftAutoAttack.MinAmmo` sets the minimum vanilla ammo count required before scanning. Phase 1 uses the original single `TechnoClass::Ammo` value.
   - `DockedAircraftAutoAttack.RequireVisibleTarget` determines whether this AircraftType requires a PhobosFog Visible target for docked auto attack. It defaults to true.
+  - `DockedAircraftAutoAttack.TargetWeight.*` can prioritize accepted targets by category. All weights default to 0.
   - `DockedAircraftAutoAttack.WeaponOrder` sets the weapon slot order to test. Phase 1 supports weapon slots 0 and 1 only.
   - `DockedAircraftAutoAttack.DisableOnDeploy` is a reserved runtime field for later deploy-toggle work and does not currently add deploy switching behavior.
 - Phase 1 uses projectile `AA`/`AG` flags as a coarse target-category filter before dispatching the aircraft.
@@ -539,9 +540,21 @@ Note that the AircraftTypes had to be defined under [AircraftTypes].
   - This setting does not change the aircraft's `Sight`, reveal the map, or modify PhobosFog state.
   - For building targets, any visible foundation cell is enough for the target to be accepted. If foundation information is unavailable, the building's current cell is used as a fallback.
 - Before automatic attack dispatch, the aircraft sends `RadioCommand::NotifyUnlink` to release the normal dock link, then continues through the standard aircraft attack mission flow.
-- Phase 1 does not add dual ammo, target weights, UI indicators, deploy switching, docked in-place firing, or AircraftWeaponAmmo.
+- Target weights only affect the initial scan-time target choice. They do not affect manual attack orders, ordinary Guard behavior, normal weapon targeting, reload timing, or the dock / NotifyUnlink lifecycle.
+  - Targets must pass all existing legality filters before scoring: enemy relation, `Range`, `DockedAircraftAutoAttack.RequireVisibleTarget`, projectile `AA`/`AG` compatibility, and weapon slot availability.
+  - If all TargetWeight values are 0, the feature keeps the Phase 1 first-accepted target selection behavior.
+  - If any TargetWeight value is greater than 0, accepted targets are scored by `score = categoryWeight`.
+  - Higher score wins. If score is equal, the nearer target wins. If score and distance are both equal, the first accepted target is kept. This is deterministic and does not use random numbers.
+  - Aircraft targets use `TargetWeight.Aircraft`, infantry targets use `TargetWeight.Infantry`, and unit targets use `TargetWeight.Vehicle`.
+  - Building targets use the maximum matching value from `TargetWeight.Building`, `TargetWeight.Defense`, `TargetWeight.Power`, and `TargetWeight.Factory`. These weights are not added together.
+  - Defense buildings use `BuildingTypeClass::IsBaseDefense`, power buildings use `BuildingTypeClass::PowerBonus > 0`, and factory buildings use `BuildingTypeClass::Factory != AbstractType::None`.
+  - Other TechnoClass targets score 0.
+  - The first TargetWeight version does not include threat bonus, health bonus, DPS prediction, armor multiplier, or TechnoType-specific overrides.
+  - Invisible targets are not selected only because their category has a high weight. Visibility filtering happens before scoring.
+  - After the aircraft enters `Dispatching` or `LockedReloading`, it keeps tracking the feature-owned marker target. A higher-weight target appearing later does not retarget the aircraft during reload. `RetargetOnHigherPriority` is not supported.
+- Phase 1 does not add dual ammo, UI indicators, deploy switching, docked in-place firing, or AircraftWeaponAmmo.
 - Team aircraft, airstrikes, and spawned aircraft are not taken over by this feature.
-- Target selection is intentionally minimal. It checks valid enemy targets within `Range`, excludes neutral and allied targets, requires projectile AA/AG compatibility for the selected target category, and then dispatches the standard aircraft attack mission.
+- Target selection checks valid enemy targets within `Range`, excludes neutral and allied targets, requires projectile AA/AG compatibility for the selected target category, optionally applies TargetWeight scoring, and then dispatches the standard aircraft attack mission.
 - R4.3 local manual testing confirmed the basic docked attack, return, reload, and re-dispatch path. Broader mod compatibility still requires local validation.
 
 In `rulesmd.ini`:
@@ -556,9 +569,49 @@ DockedAircraftAutoAttack.Range=0             ; integer, cells
 DockedAircraftAutoAttack.Interval=-1         ; integer, frames, -1 to use [General] -> DockedAircraftAutoAttack.Interval
 DockedAircraftAutoAttack.MinAmmo=1           ; integer
 DockedAircraftAutoAttack.RequireVisibleTarget=true ; boolean
+DockedAircraftAutoAttack.TargetWeight.Aircraft=0   ; integer
+DockedAircraftAutoAttack.TargetWeight.Vehicle=0    ; integer
+DockedAircraftAutoAttack.TargetWeight.Infantry=0   ; integer
+DockedAircraftAutoAttack.TargetWeight.Building=0   ; integer
+DockedAircraftAutoAttack.TargetWeight.Defense=0    ; integer
+DockedAircraftAutoAttack.TargetWeight.Power=0      ; integer
+DockedAircraftAutoAttack.TargetWeight.Factory=0    ; integer
 DockedAircraftAutoAttack.WeaponOrder=0,1     ; list of integers
 DockedAircraftAutoAttack.DisableOnDeploy=false ; boolean, reserved for later deploy-toggle behavior
 ```
+
+TargetWeight values are integers clamped to `0..100000`. Negative values are clamped to 0.
+
+CAS or ground-attack aircraft example:
+
+```ini
+[ORCA]
+DockedAircraftAutoAttack.TargetWeight.Vehicle=100
+DockedAircraftAutoAttack.TargetWeight.Defense=80
+DockedAircraftAutoAttack.TargetWeight.Building=20
+DockedAircraftAutoAttack.TargetWeight.Infantry=30
+```
+
+Bomber or structure-strike aircraft example:
+
+```ini
+[BOMBER]
+DockedAircraftAutoAttack.TargetWeight.Factory=100
+DockedAircraftAutoAttack.TargetWeight.Power=80
+DockedAircraftAutoAttack.TargetWeight.Defense=60
+DockedAircraftAutoAttack.TargetWeight.Building=40
+DockedAircraftAutoAttack.TargetWeight.Vehicle=10
+```
+
+Interceptor or anti-air aircraft example:
+
+```ini
+[INTERCEPTOR]
+DockedAircraftAutoAttack.TargetWeight.Aircraft=100
+DockedAircraftAutoAttack.TargetWeight.Vehicle=10
+```
+
+If the aircraft weapon does not support air targets, an aircraft target is still rejected by projectile `AA`/`AG` compatibility or weapon slot checks before TargetWeight scoring.
 
 ## Animations
 
