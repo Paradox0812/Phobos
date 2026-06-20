@@ -104,6 +104,13 @@ PhobosFog.RevealSources.VisibleHoldFrames=0     ; integer, 0..900
 PhobosFog.Warhead.RevealVisibleHoldFrames=-1 ; integer, -1..900
 ```
 
+### 1.3 `[WeaponType]`
+
+```ini
+[SOMENAME] ; WeaponType
+PhobosFog.AllowForceFireExploredCells=false ; boolean
+```
+
 ## 2. Global Control And State Refresh
 
 | Tag | Field | Default | Use | Meaning and notes |
@@ -181,6 +188,7 @@ All switches in this section require `PhobosFog.Enabled=true`. These switches us
 | `PhobosFog.GateAutoTargets` | `PhobosFog_GateAutoTargets` | `false` | Auto target acquisition gating. | Rejects enemy live object candidates in `TechnoClass::CanAutoTargetObject` when the target cell or building foundation is not hard `Visible` to the attacker owner or valid allies. This does not clear missions, does not clear existing targets, and does not affect already launched projectiles. |
 | `PhobosFog.GateAutoFire` | `PhobosFog_GateAutoFire` | `false` | Object fire-time safety gate. | In `TechnoClass::CanFire`, clears enemy live object targets and returns cannot-fire when the object is not hard `Visible` to the attacker owner or valid allies. Does not handle already launched projectiles, cell targets, or ground fire. |
 | `PhobosFog.GateForceFireCells` | `PhobosFog_GateForceFireCells` | `false` | Cell target fire-time gate. | In `TechnoClass::CanFire`, rejects direct `CellClass*` and terrain-backed force-fire or ground-fire targets when the resolved cell is not hard `Visible` to the attacker owner or valid allies. `TechnoClass` and `BuildingClass` object targets are left to object fire-time gating. This does not add command-stage gating and does not clear missions or queues. |
+| `[WeaponType] PhobosFog.AllowForceFireExploredCells` | `WeaponTypeExt::PhobosFog_AllowForceFireExploredCells` | `false` | Weapon-level explored-cell exception for force-fire gating. | Only applies when global `PhobosFog.GateForceFireCells=true`. For this weapon, direct `CellClass*` and terrain-backed force-fire targets are allowed when the resolved cell is `Explored` or `Visible` to the attacker owner or valid allies. `Unknown` cells remain blocked. This does not affect hidden object targets, auto target acquisition, object fire-time gating, projectiles, missions, or queues. |
 
 ## 7. Radar And Minimap
 
@@ -277,7 +285,7 @@ The following existing vanilla or game-facing behaviors are mirrored into Phobos
 | Building presentation | Live building draw is hard-`Visible` gated. Explored/fogged snapshots may remain visible as last-known static information. Building animation, hover UI, cursor, command, and health/pip presentation are separately hard-`Visible` gated. | `PhobosFog.HideBuildings`, `PhobosFog.HideHoverHealthBar`, `PhobosFog.HideHoverCursor`, `PhobosFog.HideHoverTooltip`, `PhobosFog.GateHiddenObjectCommands` |
 | World visual leak hiding | Map-space animation, particle, tiberium-spawner terrain, and ore/mining-device leak paths are controlled by opt-in render-only gates. | `PhobosFog.HideWorldAnim`, `PhobosFog.HideWorldParticles`, `PhobosFog.HideTiberiumSpawners` |
 | Cursor, tooltip, health bar, and commands | Presentation and click-target gating are split from simulation logic. Hidden-object clicks are downgraded to ordinary cell commands when enabled. | `PhobosFog.HideHoverCursor`, `PhobosFog.HideHoverTooltip`, `PhobosFog.HideHoverHealthBar`, `PhobosFog.GateHiddenObjectCommands` |
-| Combat target and fire gating | Auto-target candidates, object fire-time targets, and direct cell force-fire targets can be rejected when they are not hard `Visible` to the attacker owner or valid allies. | `PhobosFog.GateAutoTargets`, `PhobosFog.GateAutoFire`, `PhobosFog.GateForceFireCells` |
+| Combat target and fire gating | Auto-target candidates, object fire-time targets, and direct cell force-fire targets can be rejected when they are not hard `Visible` to the attacker owner or valid allies. Individual weapons can opt into explored-cell force-fire while still blocking unknown cells. | `PhobosFog.GateAutoTargets`, `PhobosFog.GateAutoFire`, `PhobosFog.GateForceFireCells`, `[WeaponType] PhobosFog.AllowForceFireExploredCells` |
 | Radar/minimap | Enemy radar dots can be hidden by hard visibility. Radar background colors can be replaced from PhobosFog state. | `PhobosFog.HideRadarObjects`, `PhobosFog.OverrideRadarFog` |
 | Reveal source integration | Warhead reveal, spy-plane reveal, SpySat, and full-map reveal events can be mirrored into PhobosFog state with source-specific hold-frame controls. | `PhobosFog.SyncSpySatellite`, `PhobosFog.SyncFullMapReveal`, `PhobosFog.*VisibleHoldFrames`, `PhobosFog.Warhead.RevealVisibleHoldFrames` |
 

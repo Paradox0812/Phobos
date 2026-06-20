@@ -70,14 +70,14 @@ namespace PhobosFogForceFire
 		return false;
 	}
 
-	static bool ShouldBlockFireAtHiddenCell(TechnoClass* const pAttacker, AbstractClass* const pTarget)
+	static bool ShouldBlockFireAtHiddenCell(TechnoClass* const pAttacker, AbstractClass* const pTarget, WeaponTypeClass* const pWeapon)
 	{
 		const auto pRulesExt = RulesExt::Global();
 
 		if (!pRulesExt || !pRulesExt->PhobosFog_Enabled || !pRulesExt->PhobosFog_GateForceFireCells)
 			return false;
 
-		if (!pAttacker || !pAttacker->Owner)
+		if (!pAttacker || !pAttacker->Owner || !pWeapon)
 			return false;
 
 		CellStruct cell {};
@@ -93,10 +93,20 @@ namespace PhobosFogForceFire
 		if (cellIndex < 0 || cellIndex >= MapClass::MaxCells)
 			return false;
 
-		bool querySucceeded = false;
-		const bool visible = HouseExt::ExtData::IsPhobosFogCellHardVisibleToViewerOrAllies(pAttacker->Owner, cellIndex, querySucceeded);
+		HouseExt::PhobosFogCellState state = HouseExt::PhobosFogCellState::Unknown;
 
-		return querySucceeded && !visible;
+		if (!HouseExt::ExtData::TryGetEffectivePhobosFogCellStateForViewerOrAllies(pAttacker->Owner, cellIndex, state))
+			return false;
+
+		if (state == HouseExt::PhobosFogCellState::Visible)
+			return false;
+
+		const auto pWeaponExt = WeaponTypeExt::ExtMap.Find(pWeapon);
+
+		if (pWeaponExt->PhobosFog_AllowForceFireExploredCells && state == HouseExt::PhobosFogCellState::Explored)
+			return false;
+
+		return true;
 	}
 }
 
@@ -415,7 +425,7 @@ DEFINE_HOOK(0x6FC339, TechnoClass_CanFire, 0x6)
 		return CannotFire;
 	}
 
-	if (PhobosFogForceFire::ShouldBlockFireAtHiddenCell(pThis, pTarget))
+	if (PhobosFogForceFire::ShouldBlockFireAtHiddenCell(pThis, pTarget, pWeapon))
 		return CannotFire;
 
 	// Checking for nullptr is not required here, since the game has already executed them before calling the hook  -- Belonit

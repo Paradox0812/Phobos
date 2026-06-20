@@ -100,6 +100,7 @@ public:
 		Nullable<bool> AttackFriendlies;
 		Nullable<bool> AttackCursorOnFriendlies;
 		Nullable<bool> AttackNoThreatBuildings;
+		Valueable<bool> PhobosFog_AllowForceFireExploredCells;
 
 		Nullable<bool> Anim_Update;
 
@@ -192,6 +193,7 @@ public:
 			, AttackFriendlies {}
 			, AttackCursorOnFriendlies {}
 			, AttackNoThreatBuildings {}
+			, PhobosFog_AllowForceFireExploredCells { false }
 			, CylinderRangefinding {}
 			, Anim_Update {}
 		{ }
