@@ -216,11 +216,11 @@ void RulesExt::ExtData::LoadBeforeTypeData(RulesClass* pThis, CCINIClass* pINI)
 	this->AircraftAltitude_SightMultiplier_Medium.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.Medium");
 	this->AircraftAltitude_SightMultiplier_High.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.High");
 	if (this->AircraftAltitude_SightMultiplier_Low < 0.0)
-		this->AircraftAltitude_SightMultiplier_Low = 0.0;
+		this->AircraftAltitude_SightMultiplier_Low = 1.0;
 	if (this->AircraftAltitude_SightMultiplier_Medium < 0.0)
-		this->AircraftAltitude_SightMultiplier_Medium = 0.0;
+		this->AircraftAltitude_SightMultiplier_Medium = 1.0;
 	if (this->AircraftAltitude_SightMultiplier_High < 0.0)
-		this->AircraftAltitude_SightMultiplier_High = 0.0;
+		this->AircraftAltitude_SightMultiplier_High = 1.0;
 
 	this->ExtendedAircraftMissions.Read(exINI, GameStrings::General, "ExtendedAircraftMissions");
 	this->ExtendedAircraftMissions_UnlandDamage.Read(exINI, GameStrings::General, "ExtendedAircraftMissions.UnlandDamage");
