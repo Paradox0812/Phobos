@@ -105,6 +105,7 @@ void WeaponTypeExt::ExtData::LoadFromINIFile(CCINIClass* const pINI)
 	this->Strafing_TargetCell.Read(exINI, pSection, "Strafing.TargetCell");
 	this->Strafing_EndDelay.Read(exINI, pSection, "Strafing.EndDelay");
 	this->CanTarget.Read(exINI, pSection, "CanTarget");
+	this->AllowedAircraftAltitudes.Read(exINI, pSection, "AllowedAircraftAltitudes");
 	this->CanTargetHouses.Read(exINI, pSection, "CanTargetHouses");
 	this->CanTarget_MaxHealth.Read(exINI, pSection, "CanTarget.MaxHealth");
 	this->CanTarget_MinHealth.Read(exINI, pSection, "CanTarget.MinHealth");
@@ -228,6 +229,7 @@ void WeaponTypeExt::ExtData::Serialize(T& Stm)
 		.Process(this->Strafing_TargetCell)
 		.Process(this->Strafing_EndDelay)
 		.Process(this->CanTarget)
+		.Process(this->AllowedAircraftAltitudes)
 		.Process(this->CanTargetHouses)
 		.Process(this->CanTarget_MaxHealth)
 		.Process(this->CanTarget_MinHealth)

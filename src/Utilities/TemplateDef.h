@@ -745,6 +745,78 @@ namespace detail
 	}
 
 	template <>
+	inline bool read<AircraftAltitudeType>(AircraftAltitudeType& value, INI_EX& parser, const char* pSection, const char* pKey)
+	{
+		if (parser.ReadString(pSection, pKey))
+		{
+			static const std::pair<const char*, AircraftAltitudeType> Names[] =
+			{
+				{"low", AircraftAltitudeType::Low},
+				{"medium", AircraftAltitudeType::Medium},
+				{"high", AircraftAltitudeType::High},
+			};
+
+			for (auto const& [name, val] : Names)
+			{
+				if (_strcmpi(parser.value(), name) == 0)
+				{
+					value = val;
+					return true;
+				}
+			}
+
+			Debug::INIParseFailed(pSection, pKey, parser.value(), "Expected an aircraft altitude");
+		}
+
+		return false;
+	}
+
+	template <>
+	inline bool read<AircraftAltitudeMask>(AircraftAltitudeMask& value, INI_EX& parser, const char* pSection, const char* pKey)
+	{
+		if (parser.ReadString(pSection, pKey))
+		{
+			static const std::pair<const char*, AircraftAltitudeMask> Names[] =
+			{
+				{"low", AircraftAltitudeMask::Low},
+				{"medium", AircraftAltitudeMask::Medium},
+				{"high", AircraftAltitudeMask::High},
+				{"all", AircraftAltitudeMask::All},
+				{"none", AircraftAltitudeMask::None},
+			};
+
+			auto parsed = AircraftAltitudeMask::None;
+			for (auto&& part : std::string_view { parser.value() } | std::views::split(','))
+			{
+				std::string_view cur { part.begin(), part.end() };
+				const auto start = cur.find_first_not_of(" \t\r");
+				const auto end = cur.find_last_not_of(" \t\r");
+				const std::string token = start == std::string_view::npos ? "" : std::string { cur.substr(start, end - start + 1) };
+				bool matched = false;
+				for (auto const& [name, val] : Names)
+				{
+					if (_strcmpi(token.c_str(), name) == 0)
+					{
+						parsed |= val;
+						matched = true;
+						break;
+					}
+				}
+				if (!matched)
+				{
+					Debug::INIParseFailed(pSection, pKey, token.c_str(), "Expected an aircraft altitude mask");
+					return false;
+				}
+			}
+
+			value = parsed;
+			return true;
+		}
+
+		return false;
+	}
+
+	template <>
 	inline bool read<AffectedTarget>(AffectedTarget& value, INI_EX& parser, const char* pSection, const char* pKey)
 	{
 		if (parser.ReadString(pSection, pKey))

@@ -212,6 +212,16 @@ void RulesExt::ExtData::LoadBeforeTypeData(RulesClass* pThis, CCINIClass* pINI)
 	this->DockedAircraftAutoAttack_Interval.Read(exINI, GameStrings::General, "DockedAircraftAutoAttack.Interval");
 	this->DockedAircraftAutoAttack_Interval = Math::max(this->DockedAircraftAutoAttack_Interval.Get(), 1);
 
+	this->AircraftAltitude_SightMultiplier_Low.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.Low");
+	this->AircraftAltitude_SightMultiplier_Medium.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.Medium");
+	this->AircraftAltitude_SightMultiplier_High.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.High");
+	if (this->AircraftAltitude_SightMultiplier_Low < 0.0)
+		this->AircraftAltitude_SightMultiplier_Low = 0.0;
+	if (this->AircraftAltitude_SightMultiplier_Medium < 0.0)
+		this->AircraftAltitude_SightMultiplier_Medium = 0.0;
+	if (this->AircraftAltitude_SightMultiplier_High < 0.0)
+		this->AircraftAltitude_SightMultiplier_High = 0.0;
+
 	this->ExtendedAircraftMissions.Read(exINI, GameStrings::General, "ExtendedAircraftMissions");
 	this->ExtendedAircraftMissions_UnlandDamage.Read(exINI, GameStrings::General, "ExtendedAircraftMissions.UnlandDamage");
 	this->AmphibiousEnter.Read(exINI, GameStrings::General, "AmphibiousEnter");
@@ -969,6 +979,9 @@ void RulesExt::ExtData::Serialize(T& Stm)
 		.Process(this->DamageEnemiesMultiplier_Berzerk)
 		.Process(this->AircraftLevelLightMultiplier)
 		.Process(this->JumpjetLevelLightMultiplier)
+		.Process(this->AircraftAltitude_SightMultiplier_Low)
+		.Process(this->AircraftAltitude_SightMultiplier_Medium)
+		.Process(this->AircraftAltitude_SightMultiplier_High)
 		.Process(this->VoxelLightSource)
 		// .Process(this->VoxelShadowLightSource)
 		.Process(this->BuildingWaypoints)

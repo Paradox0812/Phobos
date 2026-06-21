@@ -33,6 +33,7 @@ public:
 		Valueable<bool> Strafing_TargetCell;
 		Nullable<int> Strafing_EndDelay;
 		Valueable<AffectedTarget> CanTarget;
+		Nullable<AircraftAltitudeMask> AllowedAircraftAltitudes;
 		Valueable<AffectedHouse> CanTargetHouses;
 		Valueable<double> CanTarget_MaxHealth;
 		Valueable<double> CanTarget_MinHealth;
@@ -125,6 +126,7 @@ public:
 			, Strafing_TargetCell { false }
 			, Strafing_EndDelay {}
 			, CanTarget { AffectedTarget::All }
+			, AllowedAircraftAltitudes {}
 			, CanTargetHouses { AffectedHouse::All }
 			, CanTarget_MaxHealth { 1.0 }
 			, CanTarget_MinHealth { 0.0 }

@@ -207,6 +207,9 @@ public:
 
 		Valueable<double> AircraftLevelLightMultiplier;
 		Valueable<double> JumpjetLevelLightMultiplier;
+		Valueable<double> AircraftAltitude_SightMultiplier_Low;
+		Valueable<double> AircraftAltitude_SightMultiplier_Medium;
+		Valueable<double> AircraftAltitude_SightMultiplier_High;
 
 		Valueable<bool> CombatAlert;
 		Nullable<bool> CombatAlert_Default;
@@ -598,6 +601,9 @@ public:
 			, DamageEnemiesMultiplier_Berzerk {}
 			, AircraftLevelLightMultiplier { 1.0 }
 			, JumpjetLevelLightMultiplier { 0.0 }
+			, AircraftAltitude_SightMultiplier_Low { 1.0 }
+			, AircraftAltitude_SightMultiplier_Medium { 1.0 }
+			, AircraftAltitude_SightMultiplier_High { 1.0 }
 			, VoxelLightSource { }
 			// , VoxelShadowLightSource { }
 

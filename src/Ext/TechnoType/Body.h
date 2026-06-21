@@ -420,6 +420,8 @@ public:
 		Valueable<bool> Harvester_CanGuardArea_RequireTarget;
 		Nullable<bool> HarvesterScanAfterUnload;
 
+		Valueable<AircraftAltitudeType> AircraftAltitude;
+
 		Valueable<bool> DockedAircraftAutoAttack;
 		Valueable<int> DockedAircraftAutoAttack_Range;
 		Valueable<int> DockedAircraftAutoAttack_Interval;
@@ -898,6 +900,7 @@ public:
 			, Harvester_CanGuardArea_RequireTarget { false }
 			, HarvesterScanAfterUnload {}
 
+			, AircraftAltitude { AircraftAltitudeType::Medium }
 			, DockedAircraftAutoAttack { false }
 			, DockedAircraftAutoAttack_Range { 0 }
 			, DockedAircraftAutoAttack_Interval { -1 }

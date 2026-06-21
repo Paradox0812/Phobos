@@ -92,6 +92,25 @@ constexpr bool IsLandTypeInFlags(LandTypeFlags flags, LandType type)
 	return (bool)((LandTypeFlags)(1 << (char)type) & flags);
 }
 
+enum class AircraftAltitudeType : unsigned char
+{
+	Low = 0,
+	Medium = 1,
+	High = 2
+};
+
+enum class AircraftAltitudeMask : unsigned char
+{
+	None = 0x0,
+	Low = 0x1,
+	Medium = 0x2,
+	High = 0x4,
+
+	All = Low | Medium | High
+};
+
+MAKE_ENUM_FLAGS(AircraftAltitudeMask);
+
 enum class AffectedTarget : unsigned char
 {
 	None = 0x0,

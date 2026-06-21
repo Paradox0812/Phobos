@@ -1127,6 +1127,8 @@ void TechnoTypeExt::ExtData::LoadFromINIFile(CCINIClass* const pINI)
 	this->Harvester_CanGuardArea_RequireTarget.Read(exINI, pSection, "Harvester.CanGuardArea.RequireTarget");
 	this->HarvesterScanAfterUnload.Read(exINI, pSection, "HarvesterScanAfterUnload");
 
+	this->AircraftAltitude.Read(exINI, pSection, "AircraftAltitude");
+
 	this->DockedAircraftAutoAttack.Read(exINI, pSection, "DockedAircraftAutoAttack");
 	this->DockedAircraftAutoAttack_Range.Read(exINI, pSection, "DockedAircraftAutoAttack.Range");
 	this->DockedAircraftAutoAttack_Range = Math::max(this->DockedAircraftAutoAttack_Range.Get(), 0);
@@ -1893,6 +1895,7 @@ void TechnoTypeExt::ExtData::Serialize(T& Stm)
 		.Process(this->Harvester_CanGuardArea_RequireTarget)
 		.Process(this->HarvesterScanAfterUnload)
 
+		.Process(this->AircraftAltitude)
 		.Process(this->DockedAircraftAutoAttack)
 		.Process(this->DockedAircraftAutoAttack_Range)
 		.Process(this->DockedAircraftAutoAttack_Interval)
