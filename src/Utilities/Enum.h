@@ -102,11 +102,12 @@ enum class AircraftAltitudeType : unsigned char
 enum class AircraftAltitudeMask : unsigned char
 {
 	None = 0x0,
-	Low = 0x1,
-	Medium = 0x2,
-	High = 0x4,
+	Ground = 0x1,
+	Low = 0x2,
+	Medium = 0x4,
+	High = 0x8,
 
-	All = Low | Medium | High
+	All = Ground | Low | Medium | High
 };
 
 MAKE_ENUM_FLAGS(AircraftAltitudeMask);

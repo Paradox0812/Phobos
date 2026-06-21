@@ -3,6 +3,7 @@
 #include <Ext/Anim/Body.h>
 #include <Ext/BuildingType/Body.h>
 #include <Ext/House/Body.h>
+#include <Ext/Rules/Body.h>
 #include <Ext/Scenario/Body.h>
 #include <Ext/WeaponType/Body.h>
 #include <Ext/Event/Body.h>
@@ -1215,6 +1216,33 @@ bool __fastcall TechnoExt::ApplyKillDriver(TechnoClass** pData, void*, HouseClas
 int TechnoExt::ExtData::GetSight()
 {
 	double sight = this->TypeExtData->OwnerObject()->Sight;
+
+	if (auto const pAircraft = abstract_cast<AircraftClass*, true>(this->OwnerObject()))
+	{
+		if (const auto pRulesExt = RulesExt::Global())
+		{
+			if (!pAircraft->IsInAir())
+			{
+				sight *= pRulesExt->AircraftAltitude_SightMultiplier_Ground.Get();
+			}
+			else
+			{
+				switch (this->TypeExtData->AircraftAltitude.Get())
+				{
+				case AircraftAltitudeType::Low:
+					sight *= pRulesExt->AircraftAltitude_SightMultiplier_Low.Get();
+					break;
+				case AircraftAltitudeType::High:
+					sight *= pRulesExt->AircraftAltitude_SightMultiplier_High.Get();
+					break;
+				case AircraftAltitudeType::Medium:
+				default:
+					sight *= pRulesExt->AircraftAltitude_SightMultiplier_Medium.Get();
+					break;
+				}
+			}
+		}
+	}
 	
 	for (auto& callback : TechnoExtInterop::CalculateSightCallbacks)
 	{

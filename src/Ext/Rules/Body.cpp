@@ -212,9 +212,12 @@ void RulesExt::ExtData::LoadBeforeTypeData(RulesClass* pThis, CCINIClass* pINI)
 	this->DockedAircraftAutoAttack_Interval.Read(exINI, GameStrings::General, "DockedAircraftAutoAttack.Interval");
 	this->DockedAircraftAutoAttack_Interval = Math::max(this->DockedAircraftAutoAttack_Interval.Get(), 1);
 
+	this->AircraftAltitude_SightMultiplier_Ground.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.Ground");
 	this->AircraftAltitude_SightMultiplier_Low.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.Low");
 	this->AircraftAltitude_SightMultiplier_Medium.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.Medium");
 	this->AircraftAltitude_SightMultiplier_High.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.High");
+	if (this->AircraftAltitude_SightMultiplier_Ground < 0.0)
+		this->AircraftAltitude_SightMultiplier_Ground = 1.0;
 	if (this->AircraftAltitude_SightMultiplier_Low < 0.0)
 		this->AircraftAltitude_SightMultiplier_Low = 1.0;
 	if (this->AircraftAltitude_SightMultiplier_Medium < 0.0)
@@ -979,6 +982,7 @@ void RulesExt::ExtData::Serialize(T& Stm)
 		.Process(this->DamageEnemiesMultiplier_Berzerk)
 		.Process(this->AircraftLevelLightMultiplier)
 		.Process(this->JumpjetLevelLightMultiplier)
+		.Process(this->AircraftAltitude_SightMultiplier_Ground)
 		.Process(this->AircraftAltitude_SightMultiplier_Low)
 		.Process(this->AircraftAltitude_SightMultiplier_Medium)
 		.Process(this->AircraftAltitude_SightMultiplier_High)

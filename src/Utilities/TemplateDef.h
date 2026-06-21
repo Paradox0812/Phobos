@@ -778,6 +778,7 @@ namespace detail
 		{
 			static const std::pair<const char*, AircraftAltitudeMask> Names[] =
 			{
+				{"ground", AircraftAltitudeMask::Ground},
 				{"low", AircraftAltitudeMask::Low},
 				{"medium", AircraftAltitudeMask::Medium},
 				{"high", AircraftAltitudeMask::High},
@@ -785,8 +786,12 @@ namespace detail
 				{"none", AircraftAltitudeMask::None},
 			};
 
+			const std::string_view rawValue { parser.value() };
+			if (rawValue.find_first_not_of(" \t\r") == std::string_view::npos)
+				return false;
+
 			auto parsed = AircraftAltitudeMask::None;
-			for (auto&& part : std::string_view { parser.value() } | std::views::split(','))
+			for (auto&& part : rawValue | std::views::split(','))
 			{
 				std::string_view cur { part.begin(), part.end() };
 				const auto start = cur.find_first_not_of(" \t\r");
