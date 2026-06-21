@@ -421,6 +421,7 @@ public:
 		Nullable<bool> HarvesterScanAfterUnload;
 
 		Valueable<AircraftAltitudeType> AircraftAltitude;
+		bool AircraftAltitude_Explicit;
 
 		Valueable<bool> DockedAircraftAutoAttack;
 		Valueable<int> DockedAircraftAutoAttack_Range;
@@ -901,6 +902,7 @@ public:
 			, HarvesterScanAfterUnload {}
 
 			, AircraftAltitude { AircraftAltitudeType::Medium }
+			, AircraftAltitude_Explicit { false }
 			, DockedAircraftAutoAttack { false }
 			, DockedAircraftAutoAttack_Range { 0 }
 			, DockedAircraftAutoAttack_Interval { -1 }

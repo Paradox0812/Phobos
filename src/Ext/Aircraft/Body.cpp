@@ -449,69 +449,6 @@ namespace
 		return targetIsAir ? projectileAA : projectileAG;
 	}
 
-	AircraftAltitudeMask GetEffectiveAircraftTargetAltitude(TechnoClass* pTarget)
-	{
-		const auto pAircraft = abstract_cast<AircraftClass*, true>(pTarget);
-
-		if (!pAircraft)
-			return AircraftAltitudeMask::Medium;
-
-		if (!pAircraft->IsInAir())
-			return AircraftAltitudeMask::Ground;
-
-		const auto pTargetExt = TechnoExt::ExtMap.Find(pAircraft);
-		const auto pTargetTypeExt = pTargetExt ? pTargetExt->TypeExtData : nullptr;
-
-		if (!pTargetTypeExt)
-			return AircraftAltitudeMask::Medium;
-
-		switch (pTargetTypeExt->AircraftAltitude.Get())
-		{
-		case AircraftAltitudeType::Low:
-			return AircraftAltitudeMask::Low;
-		case AircraftAltitudeType::High:
-			return AircraftAltitudeMask::High;
-		case AircraftAltitudeType::Medium:
-		default:
-			return AircraftAltitudeMask::Medium;
-		}
-	}
-
-	bool IsAircraftAltitudeAllowedForWeapon(WeaponTypeClass* pWeapon, TechnoClass* pTarget)
-	{
-		if (!abstract_cast<AircraftClass*, true>(pTarget))
-			return true;
-
-		if (!pWeapon)
-			return false;
-
-		const auto pWeaponExt = WeaponTypeExt::ExtMap.Find(pWeapon);
-		AircraftAltitudeMask allowedMask = AircraftAltitudeMask::All;
-		bool hasAltitudeFilter = false;
-
-		if (pWeaponExt && pWeaponExt->AllowedAircraftAltitudes.isset())
-		{
-			allowedMask = pWeaponExt->AllowedAircraftAltitudes.Get();
-			hasAltitudeFilter = true;
-		}
-		else if (const auto pRulesExt = RulesExt::Global())
-		{
-			if (pRulesExt->AircraftAltitude_DefaultAllowedAircraftAltitudes.isset())
-			{
-				allowedMask = pRulesExt->AircraftAltitude_DefaultAllowedAircraftAltitudes.Get();
-				hasAltitudeFilter = true;
-			}
-		}
-
-		if (!hasAltitudeFilter)
-			return true;
-
-		const auto allowedAltitudes = static_cast<unsigned char>(allowedMask);
-		const auto targetAltitude = static_cast<unsigned char>(GetEffectiveAircraftTargetAltitude(pTarget));
-
-		return (allowedAltitudes & targetAltitude) != 0;
-	}
-
 	bool IsDockedAutoAttackCellVisibleTo(HouseClass* pOwner, const CellStruct& cell)
 	{
 		if (!pOwner || !MapClass::Instance.TryGetCellAt(cell))
@@ -845,7 +782,7 @@ namespace
 
 			if (IsDockedAutoAttackProjectileCompatible(pWeapon->WeaponType, pTarget, targetIsAir, projectileAA, projectileAG))
 			{
-				if (!IsAircraftAltitudeAllowedForWeapon(pWeapon->WeaponType, pTarget))
+				if (!TechnoExt::IsAircraftAltitudeAllowedForWeapon(pWeapon->WeaponType, pTarget))
 					continue;
 
 				projectileCompatible = true;
@@ -1308,7 +1245,7 @@ AbstractClass* AircraftExt::FindDockedAutoAttackTarget(AircraftClass* pThis)
 				continue;
 			}
 
-			if (!IsAircraftAltitudeAllowedForWeapon(pWeapon->WeaponType, pTarget))
+			if (!TechnoExt::IsAircraftAltitudeAllowedForWeapon(pWeapon->WeaponType, pTarget))
 			{
 				LogDockedAutoAttackCandidate(pThis, pTarget, weaponIndex, FireError::ILLEGAL, distance, true,
 					targetIsAir, projectileAA, projectileAG, false, "AircraftAltitudeMismatch", stats);

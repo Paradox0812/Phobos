@@ -1217,29 +1217,27 @@ int TechnoExt::ExtData::GetSight()
 {
 	double sight = this->TypeExtData->OwnerObject()->Sight;
 
-	if (auto const pAircraft = abstract_cast<AircraftClass*, true>(this->OwnerObject()))
+	if (const auto pRulesExt = RulesExt::Global())
 	{
-		if (const auto pRulesExt = RulesExt::Global())
+		AircraftAltitudeMask altitude = AircraftAltitudeMask::None;
+
+		if (TechnoExt::TryGetEffectiveAirTargetAltitude(this->OwnerObject(), altitude))
 		{
-			if (!pAircraft->IsInAir())
+			switch (altitude)
 			{
+			case AircraftAltitudeMask::Ground:
 				sight *= pRulesExt->AircraftAltitude_SightMultiplier_Ground.Get();
-			}
-			else
-			{
-				switch (this->TypeExtData->AircraftAltitude.Get())
-				{
-				case AircraftAltitudeType::Low:
-					sight *= pRulesExt->AircraftAltitude_SightMultiplier_Low.Get();
-					break;
-				case AircraftAltitudeType::High:
-					sight *= pRulesExt->AircraftAltitude_SightMultiplier_High.Get();
-					break;
-				case AircraftAltitudeType::Medium:
-				default:
-					sight *= pRulesExt->AircraftAltitude_SightMultiplier_Medium.Get();
-					break;
-				}
+				break;
+			case AircraftAltitudeMask::Low:
+				sight *= pRulesExt->AircraftAltitude_SightMultiplier_Low.Get();
+				break;
+			case AircraftAltitudeMask::High:
+				sight *= pRulesExt->AircraftAltitude_SightMultiplier_High.Get();
+				break;
+			case AircraftAltitudeMask::Medium:
+			default:
+				sight *= pRulesExt->AircraftAltitude_SightMultiplier_Medium.Get();
+				break;
 			}
 		}
 	}
@@ -1251,6 +1249,95 @@ int TechnoExt::ExtData::GetSight()
 	}
 	
 	return static_cast<int>(sight);
+}
+
+namespace
+{
+	AircraftAltitudeMask GetAircraftAltitudeMask(AircraftAltitudeType altitude)
+	{
+		switch (altitude)
+		{
+		case AircraftAltitudeType::Low:
+			return AircraftAltitudeMask::Low;
+		case AircraftAltitudeType::High:
+			return AircraftAltitudeMask::High;
+		case AircraftAltitudeType::Medium:
+		default:
+			return AircraftAltitudeMask::Medium;
+		}
+	}
+}
+
+bool TechnoExt::TryGetEffectiveAirTargetAltitude(TechnoClass* pTarget, AircraftAltitudeMask& outAltitude)
+{
+	outAltitude = AircraftAltitudeMask::None;
+
+	if (!pTarget)
+		return false;
+
+	if (const auto pAircraft = abstract_cast<AircraftClass*, true>(pTarget))
+	{
+		if (!pAircraft->IsInAir())
+		{
+			outAltitude = AircraftAltitudeMask::Ground;
+			return true;
+		}
+
+		if (const auto pTargetExt = TechnoExt::ExtMap.TryFind(pAircraft))
+		{
+			if (const auto pTargetTypeExt = pTargetExt->TypeExtData)
+			{
+				outAltitude = GetAircraftAltitudeMask(pTargetTypeExt->AircraftAltitude.Get());
+				return true;
+			}
+		}
+
+		outAltitude = AircraftAltitudeMask::Medium;
+		return true;
+	}
+
+	const auto pTargetExt = TechnoExt::ExtMap.TryFind(pTarget);
+	const auto pTargetTypeExt = pTargetExt ? pTargetExt->TypeExtData : nullptr;
+
+	if (!pTargetTypeExt || !pTargetTypeExt->AircraftAltitude_Explicit)
+		return false;
+
+	outAltitude = GetAircraftAltitudeMask(pTargetTypeExt->AircraftAltitude.Get());
+	return true;
+}
+
+bool TechnoExt::IsAircraftAltitudeAllowedForWeapon(WeaponTypeClass* pWeapon, TechnoClass* pTarget)
+{
+	AircraftAltitudeMask targetAltitude = AircraftAltitudeMask::None;
+
+	if (!TechnoExt::TryGetEffectiveAirTargetAltitude(pTarget, targetAltitude))
+		return true;
+
+	if (!pWeapon)
+		return false;
+
+	const auto pWeaponExt = WeaponTypeExt::ExtMap.TryFind(pWeapon);
+	AircraftAltitudeMask allowedMask = AircraftAltitudeMask::All;
+	bool hasAltitudeFilter = false;
+
+	if (pWeaponExt && pWeaponExt->AllowedAircraftAltitudes.isset())
+	{
+		allowedMask = pWeaponExt->AllowedAircraftAltitudes.Get();
+		hasAltitudeFilter = true;
+	}
+	else if (const auto pRulesExt = RulesExt::Global())
+	{
+		if (pRulesExt->AircraftAltitude_DefaultAllowedAircraftAltitudes.isset())
+		{
+			allowedMask = pRulesExt->AircraftAltitude_DefaultAllowedAircraftAltitudes.Get();
+			hasAltitudeFilter = true;
+		}
+	}
+
+	if (!hasAltitudeFilter)
+		return true;
+
+	return (static_cast<unsigned char>(allowedMask) & static_cast<unsigned char>(targetAltitude)) != 0;
 }
 
 bool TechnoExt::HasWeaponsDisabled(TechnoClass* pThis)

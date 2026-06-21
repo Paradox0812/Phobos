@@ -501,6 +501,9 @@ DEFINE_HOOK(0x6FC339, TechnoClass_CanFire, 0x6)
 			if (pTypeExt->AllowAirstrike.isset() ? !pTypeExt->AllowAirstrike.Get() : (pTargetTechno->AbstractFlags & AbstractFlags::Foot ? false : !static_cast<BuildingClass*>(pTargetTechno)->Type->CanC4))
 				return CannotFire;
 		}
+
+		if (!TechnoExt::IsAircraftAltitudeAllowedForWeapon(pWeapon, pTargetTechno))
+			return CannotFire;
 	}
 
 	return 0;
