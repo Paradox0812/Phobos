@@ -51,6 +51,20 @@ ReconCommand.Range=80             ; integer, cells
 
 `ReconCommand.Range` is reserved for future command range, point validation, or candidate limits. Negative values are sanitized to 0.
 
+## Current Implementation State
+
+Current status is fields-only:
+
+- No command is added.
+- No button is added.
+- No hotkey is added.
+- No aircraft mission is changed.
+- No loiter behavior is implemented.
+- No return-to-dock behavior is implemented.
+- No automatic AI dispatch is implemented.
+- No automatic point selection is implemented.
+- No direct PhobosFog reveal is implemented.
+
 ## Intended Future Behavior
 
 Future behavior should be implemented only after separate prototypes prove the aircraft lifecycle is safe:
@@ -82,6 +96,8 @@ ReconCommand must not directly modify PhobosFog cell states, force map reveal, o
 ReconCommand must not reuse DockedAircraftAutoAttack as its behavior path.
 
 DockedAircraftAutoAttack is an enemy-target and attack-mission driven system. ReconCommand is intended to be a manual reconnaissance command that targets a cell or coordinate.
+
+ReconCommand behavior remains deferred. It must not be implemented by routing through the DAAA target scan, marker target, reload wait, or dispatch state machine.
 
 The first behavior implementation should treat ReconCommand and DockedAircraftAutoAttack as mutually exclusive on the same AircraftType. If both are configured:
 

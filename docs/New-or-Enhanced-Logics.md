@@ -503,6 +503,34 @@ Shield.InheritStateOnReplace=false          ; boolean
 
 ## Aircraft
 
+### Aircraft altitude
+
+- Aircraft altitude rules can classify aircraft and explicitly opted-in non-aircraft targets into an effective altitude envelope for sight scaling and weapon filtering.
+  - AircraftClass targets participate by default.
+  - Aircraft on the ground, docked, or not in air use effective altitude `Ground`.
+  - Airborne aircraft use `AircraftAltitude`. If it is not configured, airborne aircraft fall back to `Medium`.
+  - Non-AircraftClass targets do not participate by default. They only participate if explicitly configured with `AircraftAltitude=Low`, `AircraftAltitude=Medium`, or `AircraftAltitude=High`.
+  - `AllowedAircraftAltitudes` and `AircraftAltitude.DefaultAllowedAircraftAltitudes` only restrict weapon candidates. They do not grant AA or AG capability.
+  - AircraftAltitude filtering is integrated with DockedAircraftAutoAttack, generic CanFire checks, and weapon selection.
+  - PhobosFog visible refresh uses `TechnoExt::GetSight()`, so AircraftAltitude sight multipliers naturally affect PhobosFog visibility.
+  - See [AircraftAltitude system](Phobos_AircraftAltitude_System.md) and [Air systems final freeze](Phobos_AirSystems_FinalFreeze.md) for the frozen behavior boundary.
+
+In `rulesmd.ini`:
+```ini
+[SOMETECHNO]                    ; TechnoType
+AircraftAltitude=Medium         ; Low, Medium, High
+
+[General]
+AircraftAltitude.SightMultiplier.Ground=1.00 ; double
+AircraftAltitude.SightMultiplier.Low=1.00    ; double
+AircraftAltitude.SightMultiplier.Medium=1.00 ; double
+AircraftAltitude.SightMultiplier.High=1.00   ; double
+AircraftAltitude.DefaultAllowedAircraftAltitudes= ; list of Ground, Low, Medium, High
+
+[SOMEWEAPON]                    ; WeaponType
+AllowedAircraftAltitudes=       ; list of Ground, Low, Medium, High
+```
+
 ### Damaged aircraft image changes
 
 - When an aircraft is damaged (health points percentage is lower than `[AudioVisual] -> ConditionYellow` percentage), it now may use different image set by `Image.ConditionYellow` AircraftType.
@@ -533,6 +561,7 @@ Note that the AircraftTypes had to be defined under [AircraftTypes].
   - `DockedAircraftAutoAttack.WeaponOrder` sets the weapon slot order to test. Phase 1 supports weapon slots 0 and 1 only.
   - `DockedAircraftAutoAttack.DisableOnDeploy` is a reserved runtime field for later deploy-toggle work and does not currently add deploy switching behavior.
 - Phase 1 uses projectile `AA`/`AG` flags as a coarse target-category filter before dispatching the aircraft.
+- AircraftAltitude filtering applies after projectile compatibility and before TargetWeight scoring.
 - `DockedAircraftAutoAttack.RequireVisibleTarget` only affects docked auto attack. It does not affect manual attack orders, normal weapon firing, or ordinary Guard behavior.
   - When `PhobosFog.Enabled=false`, this setting does not block targets because there is no PhobosFog Visible-state requirement.
   - When `PhobosFog.Enabled=true` and `DockedAircraftAutoAttack.RequireVisibleTarget=true`, only targets in cells hard-visible to the aircraft owner or allied vision are accepted. Explored and Unknown cells do not trigger docked auto attack.
@@ -613,6 +642,8 @@ DockedAircraftAutoAttack.TargetWeight.Vehicle=10
 
 If the aircraft weapon does not support air targets, an aircraft target is still rejected by projectile `AA`/`AG` compatibility or weapon slot checks before TargetWeight scoring.
 
+See [DockedAircraftAutoAttack system](Phobos_DockedAircraftAutoAttack_System.md) for the final system boundary.
+
 ### ReconCommand contract
 
 - AircraftTypes can declare fields reserved for a future manual reconnaissance command. This phase only reads and serializes the fields. It does not add a command, button, hotkey, aircraft mission behavior, loiter behavior, return-to-dock behavior, AI dispatch, or automatic map exploration.
@@ -624,6 +655,7 @@ If the aircraft weapon does not support air targets, an aircraft target is still
 - ReconCommand is not DockedAircraftAutoAttack. It is planned as a manual command where the player chooses a reconnaissance point.
 - ReconCommand is expected to rely on normal `Sight`, `TechnoExt::GetSight()`, and PhobosFog visible refresh. It does not directly reveal cells or modify PhobosFog state.
 - See [ReconCommand contract](Phobos_ReconCommand_Contract.md) for the current behavior freeze and implementation prerequisites.
+- See [Air systems final freeze](Phobos_AirSystems_FinalFreeze.md) for the current do-not-continue list.
 
 In `rulesmd.ini`:
 ```ini

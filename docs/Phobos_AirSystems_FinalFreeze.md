@@ -1,43 +1,67 @@
 # Phobos Air Systems Final Freeze
 
-This document records the current local boundary for aircraft-related systems in the PhobosFog P2 branch.
+## Current Branch / Baseline
 
-## Stable Direction
+This document records the current frozen air-system baseline for `feature/phobos-fog-p2`.
 
-The current air-system direction keeps these features separate:
+The current baseline includes:
 
-- DockedAircraftAutoAttack handles docked aircraft that automatically attack enemy targets.
-- AircraftAltitude handles effective aircraft altitude, sight multipliers, DAAA filtering, CanFire filtering, and weapon-selection filtering.
-- ReconCommand is reserved for a future manual reconnaissance command.
-- PhobosFog consumes `TechnoExt::GetSight()` for visible-cell refresh.
+- DockedAircraftAutoAttack.
+- AircraftAltitude.
+- PhobosFog GetSight integration.
+- ReconCommand contract and fields-only tags.
 
-## DockedAircraftAutoAttack
+## Completed Systems
 
-DockedAircraftAutoAttack remains an attack-oriented system.
+### DockedAircraftAutoAttack
 
-It must not be reused as ReconCommand behavior. Its dispatch path uses enemy targets, attack missions, dock unlinking, target markers, reload waiting, and target validation. These are not compatible with a manual reconnaissance command.
+DockedAircraftAutoAttack is the completed docked-aircraft auto attack system.
 
-`DockedAircraftAutoAttack.DisableOnDeploy` remains a reserved deploy-toggle field. The deploy toggle behavior is not implemented in the current branch.
+It provides:
 
-## AircraftAltitude
+- Global and AircraftType enable tags.
+- Scan range and scan interval.
+- Vanilla ammo minimum.
+- Weapon slot order.
+- Optional PhobosFog visible-target requirement.
+- TargetWeight scoring after all legality filters pass.
+- AircraftAltitude candidate filtering.
+- Dispatch through the normal aircraft attack mission path.
 
-AircraftAltitude remains the shared altitude system.
+DAAA remains an attack-oriented system and must not be reused for ReconCommand behavior.
 
-It currently provides:
+### AircraftAltitude
 
-- Aircraft altitude fields.
+AircraftAltitude v1 core is complete.
+
+It provides:
+
+- TechnoType `AircraftAltitude` fields.
+- AircraftClass default participation.
+- Non-AircraftClass explicit opt-in.
+- Ground / Low / Medium / High effective altitude.
 - Ground / Low / Medium / High sight multipliers through `TechnoExt::GetSight()`.
+- Global default allowed altitude mask.
+- WeaponType `AllowedAircraftAltitudes`.
 - DAAA altitude filtering.
 - Generic CanFire deny-only filtering.
 - Weapon-selection filtering.
 
-AircraftAltitude does not implement reconnaissance behavior, aircraft mission changes, aircraft locomotor changes, or UI.
+AircraftAltitude does not change aircraft locomotion, render height, Z axis, projectile physics, or UI.
 
-## ReconCommand
+### PhobosFog GetSight Integration
 
-ReconCommand is currently contract plus fields-only.
+PhobosFog visible refresh uses `TechnoExt::GetSight()`.
 
-It defines intended future AircraftType fields:
+This means AircraftAltitude sight multipliers naturally affect PhobosFog visibility refresh without direct PhobosFog-specific altitude code.
+
+## Contract / Fields-only Systems
+
+### ReconCommand
+
+ReconCommand is contract plus fields-only.
+
+Current fields:
 
 - `ReconCommand.Enabled`
 - `ReconCommand.RequireDock`
@@ -45,24 +69,52 @@ It defines intended future AircraftType fields:
 - `ReconCommand.ReturnWhenDone`
 - `ReconCommand.Range`
 
-The behavior implementation is deferred. ReconCommand currently does not add a command, hotkey, button, aircraft movement, loiter behavior, return-to-dock behavior, AI dispatch, or PhobosFog reveal logic.
+No behavior is implemented. There is no command, button, hotkey, aircraft mission behavior, loiter behavior, return-to-dock behavior, AI scheduling, or direct PhobosFog reveal behavior.
 
-## Deferred Work
+## Explicitly Removed / Not Continued
 
-The following work is intentionally deferred:
+The following work is not part of the current baseline:
 
-- ReconCommand behavior.
+- WeaponAmmo.
+- Aircraft-only WeaponAmmo.
+- Dock slot reservation.
+- Failed dispatch / blind dispatch experiments.
 - DAAA deploy toggle behavior.
-- Automatic AWACS or scout-plane scheduling.
-- Docked-aircraft loiter behavior.
-- Return-to-dock behavior outside existing vanilla flows.
-- Dock slot reservation experiments.
-- Failed dispatch guards.
-- WeaponAmmo and aircraft ammo experiments.
+- ReconCommand behavior implementation.
+- JumpJet automatic altitude recognition.
+- `TargetAltitude` / `AllowedTargetAltitudes` aliases.
 
-## Required Evidence Before Behavior Work
+WeaponAmmo has been removed from the current mainline and is not part of this frozen baseline.
 
-Before any ReconCommand behavior implementation, prove the following in isolated phases:
+DAAA deploy toggle is not being continued in this freeze.
+
+ReconCommand behavior is deferred until safe aircraft command, loiter, and return-to-dock prototypes exist.
+
+## Known Limitations
+
+- DAAA is not a full airport scheduler.
+- DAAA does not reserve dock slots.
+- DAAA does not use WeaponAmmo.
+- AircraftAltitude only filters and scales sight. It does not modify actual flight height.
+- Non-Aircraft altitude opt-in is fixed classification only.
+- ReconCommand does not do anything at runtime yet.
+- PhobosFog remains interval-based, so sight updates may have a small delay.
+
+## Recommended Do-Not-Touch List
+
+Do not resume these without a new contract and isolated recon:
+
+- WeaponAmmo.
+- Dock slot reservation.
+- Failed dispatch / blind dispatch guards.
+- DAAA deploy toggle.
+- ReconCommand runtime behavior.
+- JumpJet automatic altitude state.
+- Airport traffic control.
+
+## Future Work Only If Resumed
+
+Future ReconCommand behavior requires:
 
 1. A safe manual command entry for selected aircraft.
 2. A safe docked-aircraft departure path to a cell or coordinate.
