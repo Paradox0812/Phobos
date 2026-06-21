@@ -438,6 +438,12 @@ public:
 		ValueableVector<int> DockedAircraftAutoAttack_WeaponOrder;
 		Valueable<bool> DockedAircraftAutoAttack_DisableOnDeploy;
 
+		Valueable<bool> ReconCommand_Enabled;
+		Valueable<bool> ReconCommand_RequireDock;
+		Valueable<int> ReconCommand_LoiterFrames;
+		Valueable<bool> ReconCommand_ReturnWhenDone;
+		Valueable<int> ReconCommand_Range;
+
 		Nullable<bool> ExtendedAircraftMissions;
 		Nullable<bool> ExtendedAircraftMissions_SmoothMoving;
 		Nullable<bool> ExtendedAircraftMissions_EarlyDescend;
@@ -917,6 +923,11 @@ public:
 			, DockedAircraftAutoAttack_TargetWeight_Factory { 0 }
 			, DockedAircraftAutoAttack_WeaponOrder {}
 			, DockedAircraftAutoAttack_DisableOnDeploy { false }
+			, ReconCommand_Enabled { false }
+			, ReconCommand_RequireDock { true }
+			, ReconCommand_LoiterFrames { 450 }
+			, ReconCommand_ReturnWhenDone { true }
+			, ReconCommand_Range { 80 }
 			, ExtendedAircraftMissions {}
 			, ExtendedAircraftMissions_SmoothMoving {}
 			, ExtendedAircraftMissions_EarlyDescend {}

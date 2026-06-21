@@ -1182,6 +1182,14 @@ void TechnoTypeExt::ExtData::LoadFromINIFile(CCINIClass* const pINI)
 	this->DockedAircraftAutoAttack_WeaponOrder = weaponOrder;
 	this->DockedAircraftAutoAttack_DisableOnDeploy.Read(exINI, pSection, "DockedAircraftAutoAttack.DisableOnDeploy");
 
+	this->ReconCommand_Enabled.Read(exINI, pSection, "ReconCommand.Enabled");
+	this->ReconCommand_RequireDock.Read(exINI, pSection, "ReconCommand.RequireDock");
+	this->ReconCommand_LoiterFrames.Read(exINI, pSection, "ReconCommand.LoiterFrames");
+	this->ReconCommand_LoiterFrames = Math::max(this->ReconCommand_LoiterFrames.Get(), 0);
+	this->ReconCommand_ReturnWhenDone.Read(exINI, pSection, "ReconCommand.ReturnWhenDone");
+	this->ReconCommand_Range.Read(exINI, pSection, "ReconCommand.Range");
+	this->ReconCommand_Range = Math::max(this->ReconCommand_Range.Get(), 0);
+
 	this->ExtendedAircraftMissions.Read(exINI, pSection, "ExtendedAircraftMissions");
 	this->ExtendedAircraftMissions_SmoothMoving.Read(exINI, pSection, "ExtendedAircraftMissions.SmoothMoving");
 	this->ExtendedAircraftMissions_EarlyDescend.Read(exINI, pSection, "ExtendedAircraftMissions.EarlyDescend");
@@ -1919,6 +1927,12 @@ void TechnoTypeExt::ExtData::Serialize(T& Stm)
 		.Process(this->DockedAircraftAutoAttack_TargetWeight_Factory)
 		.Process(this->DockedAircraftAutoAttack_WeaponOrder)
 		.Process(this->DockedAircraftAutoAttack_DisableOnDeploy)
+
+		.Process(this->ReconCommand_Enabled)
+		.Process(this->ReconCommand_RequireDock)
+		.Process(this->ReconCommand_LoiterFrames)
+		.Process(this->ReconCommand_ReturnWhenDone)
+		.Process(this->ReconCommand_Range)
 
 		.Process(this->ExtendedAircraftMissions)
 		.Process(this->ExtendedAircraftMissions_SmoothMoving)

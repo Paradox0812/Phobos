@@ -613,6 +613,28 @@ DockedAircraftAutoAttack.TargetWeight.Vehicle=10
 
 If the aircraft weapon does not support air targets, an aircraft target is still rejected by projectile `AA`/`AG` compatibility or weapon slot checks before TargetWeight scoring.
 
+### ReconCommand contract
+
+- AircraftTypes can declare fields reserved for a future manual reconnaissance command. This phase only reads and serializes the fields. It does not add a command, button, hotkey, aircraft mission behavior, loiter behavior, return-to-dock behavior, AI dispatch, or automatic map exploration.
+  - `ReconCommand.Enabled` marks an AircraftType as intended for future manual ReconCommand behavior. It is disabled by default.
+  - `ReconCommand.RequireDock` records whether the future command should require docked aircraft. It defaults to true.
+  - `ReconCommand.LoiterFrames` records the intended future loiter duration in frames. Negative values are sanitized to 0.
+  - `ReconCommand.ReturnWhenDone` records whether the future behavior should return to dock when finished. It defaults to true.
+  - `ReconCommand.Range` is reserved for future command range or point validation. Negative values are sanitized to 0.
+- ReconCommand is not DockedAircraftAutoAttack. It is planned as a manual command where the player chooses a reconnaissance point.
+- ReconCommand is expected to rely on normal `Sight`, `TechnoExt::GetSight()`, and PhobosFog visible refresh. It does not directly reveal cells or modify PhobosFog state.
+- See [ReconCommand contract](Phobos_ReconCommand_Contract.md) for the current behavior freeze and implementation prerequisites.
+
+In `rulesmd.ini`:
+```ini
+[SOMEAIRCRAFT]                    ; AircraftType
+ReconCommand.Enabled=false        ; boolean
+ReconCommand.RequireDock=true     ; boolean
+ReconCommand.LoiterFrames=450     ; integer, frames
+ReconCommand.ReturnWhenDone=true  ; boolean
+ReconCommand.Range=80             ; integer, cells
+```
+
 ## Animations
 
 ### Anim-to-Unit
