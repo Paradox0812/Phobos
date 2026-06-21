@@ -9,6 +9,7 @@
 #include <New/Type/BannerTypeClass.h>
 #include <New/Type/InsigniaTypeClass.h>
 #include <New/Type/SelectBoxTypeClass.h>
+#include <Utilities/Debug.h>
 
 std::unique_ptr<RulesExt::ExtData> RulesExt::Data = nullptr;
 
@@ -216,14 +217,26 @@ void RulesExt::ExtData::LoadBeforeTypeData(RulesClass* pThis, CCINIClass* pINI)
 	this->AircraftAltitude_SightMultiplier_Low.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.Low");
 	this->AircraftAltitude_SightMultiplier_Medium.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.Medium");
 	this->AircraftAltitude_SightMultiplier_High.Read(exINI, GameStrings::General, "AircraftAltitude.SightMultiplier.High");
-	if (this->AircraftAltitude_SightMultiplier_Ground < 0.0)
-		this->AircraftAltitude_SightMultiplier_Ground = 1.0;
-	if (this->AircraftAltitude_SightMultiplier_Low < 0.0)
-		this->AircraftAltitude_SightMultiplier_Low = 1.0;
-	if (this->AircraftAltitude_SightMultiplier_Medium < 0.0)
-		this->AircraftAltitude_SightMultiplier_Medium = 1.0;
-	if (this->AircraftAltitude_SightMultiplier_High < 0.0)
-		this->AircraftAltitude_SightMultiplier_High = 1.0;
+	this->AircraftAltitude_DefaultAllowedAircraftAltitudes.Read(exINI, GameStrings::General, "AircraftAltitude.DefaultAllowedAircraftAltitudes");
+
+	auto sanitizeAircraftAltitudeSightMultiplier = [](Valueable<double>& multiplier, const char* pKey)
+	{
+		if (multiplier < 0.0)
+		{
+			Debug::Log("[Developer warning] [General]%s cannot be negative. Falling back to 1.0.\n", pKey);
+			multiplier = 1.0;
+		}
+		else if (multiplier > 10.0)
+		{
+			Debug::Log("[Developer warning] [General]%s is above 10.0. Clamping to 10.0.\n", pKey);
+			multiplier = 10.0;
+		}
+	};
+
+	sanitizeAircraftAltitudeSightMultiplier(this->AircraftAltitude_SightMultiplier_Ground, "AircraftAltitude.SightMultiplier.Ground");
+	sanitizeAircraftAltitudeSightMultiplier(this->AircraftAltitude_SightMultiplier_Low, "AircraftAltitude.SightMultiplier.Low");
+	sanitizeAircraftAltitudeSightMultiplier(this->AircraftAltitude_SightMultiplier_Medium, "AircraftAltitude.SightMultiplier.Medium");
+	sanitizeAircraftAltitudeSightMultiplier(this->AircraftAltitude_SightMultiplier_High, "AircraftAltitude.SightMultiplier.High");
 
 	this->ExtendedAircraftMissions.Read(exINI, GameStrings::General, "ExtendedAircraftMissions");
 	this->ExtendedAircraftMissions_UnlandDamage.Read(exINI, GameStrings::General, "ExtendedAircraftMissions.UnlandDamage");
@@ -986,6 +999,7 @@ void RulesExt::ExtData::Serialize(T& Stm)
 		.Process(this->AircraftAltitude_SightMultiplier_Low)
 		.Process(this->AircraftAltitude_SightMultiplier_Medium)
 		.Process(this->AircraftAltitude_SightMultiplier_High)
+		.Process(this->AircraftAltitude_DefaultAllowedAircraftAltitudes)
 		.Process(this->VoxelLightSource)
 		// .Process(this->VoxelShadowLightSource)
 		.Process(this->BuildingWaypoints)

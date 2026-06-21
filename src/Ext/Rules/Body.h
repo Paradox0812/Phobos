@@ -211,6 +211,7 @@ public:
 		Valueable<double> AircraftAltitude_SightMultiplier_Low;
 		Valueable<double> AircraftAltitude_SightMultiplier_Medium;
 		Valueable<double> AircraftAltitude_SightMultiplier_High;
+		Nullable<AircraftAltitudeMask> AircraftAltitude_DefaultAllowedAircraftAltitudes;
 
 		Valueable<bool> CombatAlert;
 		Nullable<bool> CombatAlert_Default;
@@ -606,6 +607,7 @@ public:
 			, AircraftAltitude_SightMultiplier_Low { 1.0 }
 			, AircraftAltitude_SightMultiplier_Medium { 1.0 }
 			, AircraftAltitude_SightMultiplier_High { 1.0 }
+			, AircraftAltitude_DefaultAllowedAircraftAltitudes {}
 			, VoxelLightSource { }
 			// , VoxelShadowLightSource { }
 

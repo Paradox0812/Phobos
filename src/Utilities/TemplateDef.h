@@ -810,7 +810,8 @@ namespace detail
 				if (!matched)
 				{
 					Debug::INIParseFailed(pSection, pKey, token.c_str(), "Expected an aircraft altitude mask");
-					return false;
+					value = AircraftAltitudeMask::None;
+					return true;
 				}
 			}
 
