@@ -202,8 +202,14 @@ DEFINE_HOOK(0x6F3428, TechnoClass_WhatWeaponShouldIUse_ForceWeapon, 0x6)
 
 	if (forceWeaponIndex >= 0)
 	{
-		R->EAX(forceWeaponIndex);
-		return UseWeaponIndex;
+		const auto pTargetTechno = abstract_cast<TechnoClass*, true>(pTarget);
+		const auto pWeapon = pThis->GetWeapon(forceWeaponIndex);
+
+		if (!pTargetTechno || (pWeapon && TechnoExt::IsAircraftAltitudeAllowedForWeapon(pWeapon->WeaponType, pTargetTechno)))
+		{
+			R->EAX(forceWeaponIndex);
+			return UseWeaponIndex;
+		}
 	}
 
 	// Multi weapon
@@ -279,13 +285,13 @@ DEFINE_HOOK(0x6F37EB, TechnoClass_WhatWeaponShouldIUse_AntiAir, 0x6)
 
 		if (!pPrimaryProj->AA && pSecondaryProj->AA)
 		{
-			if (pTargetTechno->IsInAir())
+			if (pTargetTechno->IsInAir() && TechnoExt::IsAircraftAltitudeAllowedForWeapon(pSecWeapon, pTargetTechno))
 				return Secondary;
 		}
 
 		if (BulletTypeExt::ExtMap.Find(pSecondaryProj)->AU && !BulletTypeExt::ExtMap.Find(pPrimaryProj)->AU)
 		{
-			if (pTargetTechno->InWhichLayer() == Layer::Underground)
+			if (pTargetTechno->InWhichLayer() == Layer::Underground && TechnoExt::IsAircraftAltitudeAllowedForWeapon(pSecWeapon, pTargetTechno))
 				return Secondary;
 		}
 	}
@@ -331,6 +337,8 @@ DEFINE_HOOK(0x6F3432, TechnoClass_WhatWeaponShouldIUse_Gattling, 0xA)
 				if (pShield && pShield->IsActive() && !pShield->CanBeTargeted(pWeapon))
 					return false;
 				if (GeneralUtils::GetWarheadVersusArmor(pWeapon->Warhead, armor) == 0.0)
+					return false;
+				if (!TechnoExt::IsAircraftAltitudeAllowedForWeapon(pWeapon, pTargetTechno))
 					return false;
 				return true;
 			};

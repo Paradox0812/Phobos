@@ -12,12 +12,25 @@ int TechnoExt::PickWeaponIndex(TechnoClass* pThis, TechnoClass* pTargetTechno, A
 	if (!pWeaponStructOne && !pWeaponStructTwo)
 		return -1;
 	else if (!pWeaponStructTwo)
-		return weaponIndexOne;
+		return TechnoExt::IsAircraftAltitudeAllowedForWeapon(pWeaponStructOne->WeaponType, pTargetTechno) ? weaponIndexOne : -1;
 	else if (!pWeaponStructOne)
-		return weaponIndexTwo;
+		return TechnoExt::IsAircraftAltitudeAllowedForWeapon(pWeaponStructTwo->WeaponType, pTargetTechno) ? weaponIndexTwo : -1;
 
+	auto const pWeaponOne = pWeaponStructOne->WeaponType;
 	auto const pWeaponTwo = pWeaponStructTwo->WeaponType;
+	const bool firstAltitudeAllowed = TechnoExt::IsAircraftAltitudeAllowedForWeapon(pWeaponOne, pTargetTechno);
+	const bool secondAltitudeAllowed = TechnoExt::IsAircraftAltitudeAllowedForWeapon(pWeaponTwo, pTargetTechno);
 	auto const pSecondExt = WeaponTypeExt::ExtMap.Find(pWeaponTwo);
+
+	auto const fallbackToFirst = [firstAltitudeAllowed, weaponIndexOne]()
+		{
+			return firstAltitudeAllowed ? weaponIndexOne : -1;
+		};
+
+	auto const fallbackToSecond = [secondAltitudeAllowed, weaponIndexTwo]()
+		{
+			return secondAltitudeAllowed ? weaponIndexTwo : -1;
+		};
 
 	CellClass* pTargetCell = nullptr;
 
@@ -33,7 +46,7 @@ int TechnoExt::PickWeaponIndex(TechnoClass* pThis, TechnoClass* pTargetTechno, A
 	if (!pSecondExt->SkipWeaponPicking)
 	{
 		if (pTargetCell && !EnumFunctions::IsCellEligible(pTargetCell, pSecondExt->CanTarget, true, true))
-			return weaponIndexOne;
+			return fallbackToFirst();
 
 		if (pTargetTechno)
 		{
@@ -43,19 +56,20 @@ int TechnoExt::PickWeaponIndex(TechnoClass* pThis, TechnoClass* pTargetTechno, A
 				|| !pSecondExt->IsVeterancyInThreshold(pTargetTechno)
 				|| !pSecondExt->HasRequiredAttachedEffects(pTargetTechno, pThis))
 			{
-				return weaponIndexOne;
+				return fallbackToFirst();
 			}
 		}
 	}
 
 	const bool secondIsAA = pTargetTechno && pTargetTechno->IsInAir() && pWeaponTwo->Projectile->AA;
-	auto const pFirstExt = WeaponTypeExt::ExtMap.Find(pWeaponStructOne->WeaponType);
+	auto const pFirstExt = WeaponTypeExt::ExtMap.Find(pWeaponOne);
 	const bool skipPrimaryPicking = pFirstExt->SkipWeaponPicking;
 	const bool firstAllowedAE = skipPrimaryPicking || pFirstExt->HasRequiredAttachedEffects(pTargetTechno, pThis);
 
 	if (!allowFallback
 		&& (!allowAAFallback || !secondIsAA)
 		&& firstAllowedAE
+		&& firstAltitudeAllowed
 		&& !TechnoExt::CanFireNoAmmoWeapon(pThis, 1))
 	{
 		return weaponIndexOne;
@@ -64,7 +78,7 @@ int TechnoExt::PickWeaponIndex(TechnoClass* pThis, TechnoClass* pTargetTechno, A
 	if (!skipPrimaryPicking)
 	{
 		if (pTargetCell && !EnumFunctions::IsCellEligible(pTargetCell, pFirstExt->CanTarget, true, true))
-			return weaponIndexTwo;
+			return fallbackToSecond();
 
 		if (pTargetTechno)
 		{
@@ -74,10 +88,19 @@ int TechnoExt::PickWeaponIndex(TechnoClass* pThis, TechnoClass* pTargetTechno, A
 				|| !pFirstExt->IsVeterancyInThreshold(pTargetTechno)
 				|| !firstAllowedAE)
 			{
-				return weaponIndexTwo;
+				return fallbackToSecond();
 			}
 		}
 	}
+
+	if (!firstAltitudeAllowed && secondAltitudeAllowed)
+		return weaponIndexTwo;
+
+	if (firstAltitudeAllowed && !secondAltitudeAllowed)
+		return weaponIndexOne;
+
+	if (!firstAltitudeAllowed && !secondAltitudeAllowed)
+		return -1;
 
 	// Handle special case with NavalTargeting / LandTargeting.
 	if (!pTargetTechno && pTargetCell)
@@ -91,7 +114,7 @@ int TechnoExt::PickWeaponIndex(TechnoClass* pThis, TechnoClass* pTargetTechno, A
 
 			if (landType != LandType::Water && landType != LandType::Beach)
 			{
-				return weaponIndexTwo;
+				return fallbackToSecond();
 			}
 		}
 	}
@@ -431,6 +454,9 @@ bool TechnoExt::MultiWeaponCanFire(TechnoClass* const pThis, AbstractClass* cons
 
 	if (pTechno)
 	{
+		if (!TechnoExt::IsAircraftAltitudeAllowedForWeapon(pWeaponType, pTechno))
+			return false;
+
 		if (pTechno->AttachedBomb ? pWH->IvanBomb : pWH->BombDisarm)
 			return false;
 
