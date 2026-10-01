@@ -47,7 +47,8 @@ def helpers(source, namespace, names):
     return "namespace " + namespace + " {\n" + structs + "static std::vector<OverlayDrawRect> OverlayScratchDrawRects;\n" + ''.join(definition(source, n) + "\n" for n in common + names) + "}\n"
 cpp = preamble + helpers(old, "before", ["static bool DrawCoalescedRects(", "static bool DrawUnionSpans("])
 cpp += helpers(new, "after", ["static void BuildCoalescedRects(", "static bool DrawPreparedRects(", "static bool DrawUnionSpans("])
-cpp += "namespace lifecycle { struct HouseClass {};\n" + structs
+cpp += "namespace lifecycle { struct HouseClass {};\n" + definition(new, "enum class OverlayCellKind") + ";\n" + structs
+cpp += ''.join(definition(new, "struct " + name) + ";\n" for name in ("OverlayGeometryInput", "OverlayVisibilityInput", "OverlayHouseInput"))
 cpp += ''.join(definition(new, "struct " + name) + ";\n" for name in ("OverlayRegionCacheKey", "OverlayRegionCacheStats", "OverlayRegionCacheEntry"))
 cpp += "static OverlayRegionCacheEntry OverlayFinalRegionCache; static int OverlayRegionCacheHitStreak;\n"
 cpp += definition(new, "void ResetCache()") + "\n}\n"
@@ -58,12 +59,20 @@ int main() {
  lifecycle::OverlayFinalRegionCache.EdgeRects.push_back({6,7,8,9,10});
  lifecycle::OverlayFinalRegionCache.FinalRegionUnionSpans.push_back({1,2,3,4});
  lifecycle::OverlayFinalRegionCache.EdgeUnionSpanCount=5;
+ lifecycle::OverlayFinalRegionCache.GeometryInputs.push_back({});
+ lifecycle::OverlayFinalRegionCache.VisibilityInputs.push_back({});
+ lifecycle::OverlayFinalRegionCache.HouseInputs.push_back({});
+ lifecycle::OverlayFinalRegionCache.NextAlphaChangeFrame=123;
+ lifecycle::OverlayFinalRegionCache.LastValidatedFrame=120;
  lifecycle::OverlayRegionCacheHitStreak=12;
  lifecycle::ResetCache();
  assert(!lifecycle::OverlayFinalRegionCache.Valid);
  assert(lifecycle::OverlayFinalRegionCache.MainRects.empty() && lifecycle::OverlayFinalRegionCache.EdgeRects.empty());
  assert(lifecycle::OverlayFinalRegionCache.FinalRegionUnionSpans.empty());
  assert(lifecycle::OverlayFinalRegionCache.EdgeUnionSpanCount==0 && lifecycle::OverlayRegionCacheHitStreak==0);
+ assert(lifecycle::OverlayFinalRegionCache.GeometryInputs.empty() && lifecycle::OverlayFinalRegionCache.VisibilityInputs.empty());
+ assert(lifecycle::OverlayFinalRegionCache.HouseInputs.empty() && lifecycle::OverlayFinalRegionCache.NextAlphaChangeFrame==0);
+ assert(lifecycle::OverlayFinalRegionCache.LastValidatedFrame==-1);
  std::mt19937 rng(748);
  int checks=0;
  for(int scenario=0; scenario<1000; ++scenario) {
@@ -101,7 +110,7 @@ int main() {
 '''
 # Static integration checks complement helper execution; they are not runtime tests.
 assert 'result.DisabledReason = "SoftEdge"' not in new
-assert 'result.DisabledReason = "FadeIn"' in new
+assert "NextOverlayAlphaChangeFrame" in new
 hit = new[new.index("if (overlayCacheHit)"):new.index("const bool overlayCacheMiss")]
 assert "BuildCoalescedRects(" not in hit and "DrawUnionSpans(" not in hit
 assert "OverlayFinalRegionCache.EdgeRects" in hit
@@ -116,4 +125,4 @@ with tempfile.TemporaryDirectory(prefix="phobos-overlay-test-") as tmp:
     source.write_text(cpp)
     subprocess.run([os.environ.get("CXX", "g++"), "-std=c++20", "-O1", "-Wall", "-Wextra", "-fsanitize=address,undefined", "-fno-omit-frame-pointer", str(source), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)
-print("PASS: integration guards (cache hit, fade exclusion, logging order, default interval and force path)")
+print("PASS: integration guards (cache hit, fade scheduling, logging order, default interval and force path)")

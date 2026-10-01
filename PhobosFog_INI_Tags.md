@@ -26,7 +26,7 @@ Current baseline snapshot:
 - Enemy FootClass, live BuildingClass, world animations, world particles, tiberium-spawner terrain, hover UI, cursor presentation, radar dots, and hidden-object command dispatch are controlled by separate opt-in tags.
 - Explored building snapshots may remain visible as last-known static information when `PhobosFog.HideBuildings=true`; building animations, hover UI, cursor, command, and health/pip presentation remain hard-`Visible` gated.
 - `PhobosFog.HideBuildings` is live-building presentation gating. It is not a total building erase switch and does not suppress accepted explored building snapshot semantics.
-- The explored-overlay final-rectangle cache supports the main and soft-edge passes when fade-in is disabled. Positive fade-in durations (including the default of 6) keep cache reuse disabled because alpha can change by frame.
+- The explored-overlay final-rectangle cache supports main and soft-edge passes with or without fade-in. It reuses rectangles only while the local rendering inputs, including the actual faded alpha values, remain unchanged.
 - Current manual acceptance notes: enemy FootClass hiding, allied visible merge, radar background override, reveal-source synchronization, current overlay edge behavior, command/cursor/tooltip gating, and explored building snapshot semantics have passed their latest manual checks unless a later phase reopens them.
 
 ## 1. Complete Tag Index
@@ -123,11 +123,13 @@ PhobosFog.AllowForceFireExploredCells=false ; boolean
 
 ## 3. Explored Overlay Rendering
 
-With `PhobosFog.ExploredOverlayFadeInFrames=0`, the overlay caches the final main and soft-edge rectangles until the viewer, effective visibility, viewport, configuration or temporal visibility expiry changes. Cache hits retain the main-before-edge blending order and shared rectangle budget. Positive fade durations keep the uncached path so alpha continues to change each frame. Performance-log `DrawRects` and `HitMaxDrawRects` include the edge pass.
+The overlay caches final main and soft-edge rectangles, including with the default `PhobosFog.ExploredOverlayFadeInFrames=6`. Actual local cell kinds and faded alpha values decide whether those rectangles can be reused. Active fades are rechecked on the next frame; future visibility timestamps are rechecked when reached. Cache hits retain the main-before-edge blending order and shared rectangle budget. Performance-log `DrawRects` and `HitMaxDrawRects` include the edge pass.
 
 The explored overlay draws only when both `PhobosFog.Enabled=true` and `PhobosFog.DrawExploredOverlay=true`.
 
-Cache reuse remains disabled while `PhobosFog.ExploredOverlayFadeInFrames > 0`, including the default value of 6. The overlay still draws in this mode. Scenario teardown clears the cached rectangles before another map can reuse them.
+A cheap house-state check includes immediate full-map visibility (such as Spy Satellite changes), not just the periodic fog refresh version. When it changes, the renderer compares the viewport source cells and a one-cell neighbor halo before rebuilding; unrelated off-screen movement does not by itself invalidate the final rectangles. Local geometry is still checked every draw, and those projections are reused during rebuilds. This avoids assuming that terrain height is immutable. Scenario teardown clears the cached rectangles.
+
+This adds bounded geometry-validation work each frame. Units changing the visible frontier, camera scrolling, terrain changes and changing fade alpha can still require rebuilds; this is not a claim that all large-unit-count stalls are eliminated. `GeometryProbes` counts actual projection calls and `VisibilityQueries` counts per-house state/timestamp reads during the overlay draw. Compare these with existing cache hits/rebuilds and submitted `DrawRects`; they are operation counters, not stage timings.
 
 | Tag | Field | Default | Use | Meaning and notes |
 |---|---|---:|---|---|
@@ -138,11 +140,11 @@ Cache reuse remains disabled while `PhobosFog.ExploredOverlayFadeInFrames > 0`, 
 | `PhobosFog.ExploredOverlayPaddingX` | `PhobosFog_ExploredOverlayPaddingX` | `4` | Horizontal placement adjustment. | Extra X offset/padding used by the overlay draw pass. Negative values are corrected to `0`. |
 | `PhobosFog.ExploredOverlayPaddingY` | `PhobosFog_ExploredOverlayPaddingY` | `4` | Vertical placement adjustment. | Extra Y offset/padding used by the overlay draw pass. Negative values are corrected to `0`. |
 | `PhobosFog.ExploredOverlayViewportPaddingCells` | `PhobosFog_ExploredOverlayViewportPaddingCells` | `2` | Viewport overdraw margin. | Extra cells drawn around the visible viewport to reduce edge gaps. Clamped to `0..8`. |
-| `PhobosFog.ExploredOverlaySoftEdge` | `PhobosFog_ExploredOverlaySoftEdge` | `true` | Enables soft-edge pass. | Adds softer frontier drawing around explored cells. The soft-edge pass can reuse cached final rectangles when fade-in is disabled. |
+| `PhobosFog.ExploredOverlaySoftEdge` | `PhobosFog_ExploredOverlaySoftEdge` | `true` | Enables soft-edge pass. | Adds softer frontier drawing around explored cells. The soft-edge pass can reuse cached final rectangles while its local rendering inputs remain unchanged. |
 | `PhobosFog.ExploredOverlaySoftEdgeAlpha` | `PhobosFog_ExploredOverlaySoftEdgeAlpha` | `20` | Legacy soft-edge alpha. | Retained for compatibility with earlier PhobosFog overlay tuning. Current drawing prefers the visible/unknown alpha split below. Clamped to `0..255`. |
 | `PhobosFog.ExploredOverlaySoftEdgeVisibleAlpha` | `PhobosFog_ExploredOverlaySoftEdgeVisibleAlpha` | `20` | Soft edge toward visible cells. | Alpha for explored frontier cells neighboring hard `Visible` cells. Clamped to `0..255`. |
 | `PhobosFog.ExploredOverlaySoftEdgeUnknownAlpha` | `PhobosFog_ExploredOverlaySoftEdgeUnknownAlpha` | `0` | Soft edge toward unknown cells. | Alpha for explored frontier cells neighboring `Unknown` cells or outside-map neighbors. Default `0` avoids extra gray bloom at unknown borders. Clamped to `0..255`. |
-| `PhobosFog.ExploredOverlayFadeInFrames` | `PhobosFog_ExploredOverlayFadeInFrames` | `6` | Visual fade-in duration. | Frames used to fade explored overlay in after a cell leaves hard `Visible`. `0` disables fade-in. Clamped to `0..60`. Current final-region cache reuse is disabled while this is greater than `0`, because the alpha can change by frame. |
+| `PhobosFog.ExploredOverlayFadeInFrames` | `PhobosFog_ExploredOverlayFadeInFrames` | `6` | Visual fade-in duration. | Frames used to fade explored overlay in after a cell leaves hard `Visible`. `0` disables fade-in. Clamped to `0..60`. Positive durations retain their original per-frame alpha behavior; unchanged local alpha permits cache reuse, while a changing alpha invalidates the cached rectangles. |
 | `PhobosFog.ExploredOverlayUnknownMerge` | `PhobosFog_ExploredOverlayUnknownMerge` | `true` | Enables unknown-boundary merge pass. | Draws an additional merge pass at unknown borders before the soft edge and main overlay passes. |
 | `PhobosFog.ExploredOverlayUnknownMergeAlpha` | `PhobosFog_ExploredOverlayUnknownMergeAlpha` | `36` | Unknown merge alpha. | Alpha for the unknown-boundary merge pass. Clamped to `0..255`. |
 | `PhobosFog.ExploredOverlayUnknownMergePadding` | `PhobosFog_ExploredOverlayUnknownMergePadding` | `18` | Unknown merge padding. | Extra screen-space padding for the unknown-boundary merge pass. Clamped to `0..64`. |
