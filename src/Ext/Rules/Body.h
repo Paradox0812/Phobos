@@ -771,7 +771,7 @@ public:
 			, PhobosFog_WarheadReveal_VisibleHoldFrames { -1 }
 			, PhobosFog_SpyPlaneReveal_VisibleHoldFrames { -1 }
 			, PhobosFog_RevealSources_VisibleHoldFrames { 0 }
-			, PhobosFog_UpdateInterval { 3 }
+			, PhobosFog_UpdateInterval { 30 }
 
 			, PenetratesTransport_Level { 10 }
 

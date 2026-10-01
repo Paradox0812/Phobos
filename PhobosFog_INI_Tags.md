@@ -26,7 +26,7 @@ Current baseline snapshot:
 - Enemy FootClass, live BuildingClass, world animations, world particles, tiberium-spawner terrain, hover UI, cursor presentation, radar dots, and hidden-object command dispatch are controlled by separate opt-in tags.
 - Explored building snapshots may remain visible as last-known static information when `PhobosFog.HideBuildings=true`; building animations, hover UI, cursor, command, and health/pip presentation remain hard-`Visible` gated.
 - `PhobosFog.HideBuildings` is live-building presentation gating. It is not a total building erase switch and does not suppress accepted explored building snapshot semantics.
-- The current explored-overlay final-region cache is disabled when soft edge is enabled or fade-in frames are active, because those visual passes still have frame-dependent or separate-pass behavior.
+- The explored-overlay final-rectangle cache supports the main and soft-edge passes when fade-in is disabled. Positive fade-in durations (including the default of 6) keep cache reuse disabled because alpha can change by frame.
 - Current manual acceptance notes: enemy FootClass hiding, allied visible merge, radar background override, reveal-source synchronization, current overlay edge behavior, command/cursor/tooltip gating, and explored building snapshot semantics have passed their latest manual checks unless a later phase reopens them.
 
 ## 1. Complete Tag Index
@@ -39,7 +39,7 @@ PhobosFog.Enabled=false                         ; boolean
 PhobosFog.Debug=false                           ; boolean
 PhobosFog.Perf.Enabled=false                    ; boolean
 PhobosFog.Perf.IntervalFrames=300               ; integer, reset to 300 if <= 0
-PhobosFog.UpdateInterval=3                      ; integer, minimum 1
+PhobosFog.UpdateInterval=30                      ; integer, minimum 1
 
 PhobosFog.DrawExploredOverlay=false             ; boolean
 PhobosFog.ExploredOverlayAlpha=96               ; integer, 0..255
@@ -119,13 +119,15 @@ PhobosFog.AllowForceFireExploredCells=false ; boolean
 | `PhobosFog.Debug` | `PhobosFog_Debug` | `false` | Debug logging gate. | Enables PhobosFog debug logs such as refresh summaries and source-specific debug output. It must not change gameplay or rendering behavior. |
 | `PhobosFog.Perf.Enabled` | `PhobosFog_Perf_Enabled` | `false` | Independent performance logging gate. | Enables low-frequency `[PhobosFog][Perf]` logs even when `PhobosFog.Debug=false`. This is deliberately separate from debug logging; perf mode should not enable RegionMask, CliffProbe, or debug summaries by itself. |
 | `PhobosFog.Perf.IntervalFrames` | `PhobosFog_Perf_IntervalFrames` | `300` | Performance logging cadence. | Controls how many game frames must pass between `[PhobosFog][Perf]` lines. Values `<= 0` are corrected to `300`. |
-| `PhobosFog.UpdateInterval` | `PhobosFog_UpdateInterval` | `3` | Fog refresh cadence in frames. | Controls how often PhobosFog refreshes hard visibility from sight providers. Values `<= 0` are corrected to `1`. Lower values are more responsive but cost more CPU. |
+| `PhobosFog.UpdateInterval` | `PhobosFog_UpdateInterval` | `30` | Fog refresh cadence in frames. | Controls how often PhobosFog refreshes hard visibility from sight providers. Values `<= 0` are corrected to `1`. Lower values are more responsive but cost more CPU. Explicit INI values override the default (an existing `PhobosFog.UpdateInterval=3` still uses 3); forced refreshes still run immediately. Rendering continues every frame, independently of this logic cadence. |
 
 ## 3. Explored Overlay Rendering
 
+With `PhobosFog.ExploredOverlayFadeInFrames=0`, the overlay caches the final main and soft-edge rectangles until the viewer, effective visibility, viewport, configuration or temporal visibility expiry changes. Cache hits retain the main-before-edge blending order and shared rectangle budget. Positive fade durations keep the uncached path so alpha continues to change each frame. Performance-log `DrawRects` and `HitMaxDrawRects` include the edge pass.
+
 The explored overlay draws only when both `PhobosFog.Enabled=true` and `PhobosFog.DrawExploredOverlay=true`.
 
-The P9 final-region overlay cache is currently conservative: it is disabled while `PhobosFog.ExploredOverlaySoftEdge=true` with an active visible soft edge, and while `PhobosFog.ExploredOverlayFadeInFrames > 0`. The overlay still draws in those modes; only final-region cache reuse is disabled.
+Cache reuse remains disabled while `PhobosFog.ExploredOverlayFadeInFrames > 0`, including the default value of 6. The overlay still draws in this mode. Scenario teardown clears the cached rectangles before another map can reuse them.
 
 | Tag | Field | Default | Use | Meaning and notes |
 |---|---|---:|---|---|
@@ -136,7 +138,7 @@ The P9 final-region overlay cache is currently conservative: it is disabled whil
 | `PhobosFog.ExploredOverlayPaddingX` | `PhobosFog_ExploredOverlayPaddingX` | `4` | Horizontal placement adjustment. | Extra X offset/padding used by the overlay draw pass. Negative values are corrected to `0`. |
 | `PhobosFog.ExploredOverlayPaddingY` | `PhobosFog_ExploredOverlayPaddingY` | `4` | Vertical placement adjustment. | Extra Y offset/padding used by the overlay draw pass. Negative values are corrected to `0`. |
 | `PhobosFog.ExploredOverlayViewportPaddingCells` | `PhobosFog_ExploredOverlayViewportPaddingCells` | `2` | Viewport overdraw margin. | Extra cells drawn around the visible viewport to reduce edge gaps. Clamped to `0..8`. |
-| `PhobosFog.ExploredOverlaySoftEdge` | `PhobosFog_ExploredOverlaySoftEdge` | `true` | Enables soft-edge pass. | Adds softer frontier drawing around explored cells. Current final-region cache reuse is disabled while the visible soft-edge pass is active. |
+| `PhobosFog.ExploredOverlaySoftEdge` | `PhobosFog_ExploredOverlaySoftEdge` | `true` | Enables soft-edge pass. | Adds softer frontier drawing around explored cells. The soft-edge pass can reuse cached final rectangles when fade-in is disabled. |
 | `PhobosFog.ExploredOverlaySoftEdgeAlpha` | `PhobosFog_ExploredOverlaySoftEdgeAlpha` | `20` | Legacy soft-edge alpha. | Retained for compatibility with earlier PhobosFog overlay tuning. Current drawing prefers the visible/unknown alpha split below. Clamped to `0..255`. |
 | `PhobosFog.ExploredOverlaySoftEdgeVisibleAlpha` | `PhobosFog_ExploredOverlaySoftEdgeVisibleAlpha` | `20` | Soft edge toward visible cells. | Alpha for explored frontier cells neighboring hard `Visible` cells. Clamped to `0..255`. |
 | `PhobosFog.ExploredOverlaySoftEdgeUnknownAlpha` | `PhobosFog_ExploredOverlaySoftEdgeUnknownAlpha` | `0` | Soft edge toward unknown cells. | Alpha for explored frontier cells neighboring `Unknown` cells or outside-map neighbors. Default `0` avoids extra gray bloom at unknown borders. Clamped to `0..255`. |
@@ -354,7 +356,7 @@ Use this preset when evaluating current overlay visuals:
 ```ini
 [General]
 PhobosFog.Enabled=true
-PhobosFog.UpdateInterval=3
+PhobosFog.UpdateInterval=30
 
 PhobosFog.DrawExploredOverlay=true
 PhobosFog.ExploredOverlayAlpha=96

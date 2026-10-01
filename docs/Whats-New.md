@@ -674,6 +674,8 @@ HideShakeEffects=false           ; boolean
 - Fixed the bug that techno will get stuck if change owner in tunnel (by NetsuNegi)
 
 #### Phobos fixes:
+- PhobosFog now caches final main and soft-edge overlay rectangles when fade-in is disabled, avoiding repeated geometry preparation on cache hits. Overlay performance counters now include soft-edge drawing.
+- The default `PhobosFog.UpdateInterval` is now 30 logic frames. Explicit INI overrides and forced refreshes are preserved; overlay drawing still runs every frame.
 - Fixed the bug that `AllowAirstrike=no` cannot completely prevent air strikes from being launched against it (by NetsuNegi)
 - Fixed an issue that `FireAngle` was not taken into account when drawing barrel in `TurretShadow` (by CrimRecya)
 - Fixed a bug that sometimes caused weapon/warhead detonations from features such as `ExtraWarheads`, animation damage or `Crit.Warhead` to unintentionally move from its intended position (by Starkku)

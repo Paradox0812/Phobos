@@ -1,3 +1,5 @@
+#include "PhobosFogOverlay.h"
+
 #include <Ext/Anim/Body.h>
 #include <Ext/House/Body.h>
 #include <Ext/Rules/Body.h>
@@ -323,6 +325,9 @@ namespace PhobosFogExploredOverlay
 		bool Valid { false };
 		OverlayRegionCacheKey Key {};
 		std::vector<OverlaySpan> FinalRegionUnionSpans {};
+		std::vector<OverlayDrawRect> MainRects {};
+		std::vector<OverlayDrawRect> EdgeRects {};
+		size_t EdgeUnionSpanCount { 0 };
 		OverlayRegionCacheStats Stats {};
 		int TemporalCacheFirstInvalidFrame { 0 };
 	};
@@ -343,6 +348,14 @@ namespace PhobosFogExploredOverlay
 	static unsigned long long OverlayRegionCacheTotalMisses = 0;
 	static unsigned long long OverlayRegionCacheTotalRebuilds = 0;
 	static int OverlayRegionCacheHitStreak = 0;
+	// Scenario teardown must invalidate screen geometry even if the next game's
+	// house address, visibility version and viewport happen to reuse the same key.
+	void ResetCache()
+	{
+		OverlayFinalRegionCache = {};
+		OverlayRegionCacheHitStreak = 0;
+	}
+
 	static std::vector<OverlaySpan> OverlayScratchEdgeSpans {};
 	static std::vector<OverlaySpan> OverlayScratchCliffSpans {};
 	static std::vector<OverlaySpan> OverlayScratchVerticalFaceSpans {};
@@ -777,12 +790,6 @@ namespace PhobosFogExploredOverlay
 		if (fadeInFrames > 0)
 		{
 			result.DisabledReason = "FadeIn";
-			return result;
-		}
-
-		if (softEdge && softEdgeVisibleAlpha > 0 && softEdgePadding > 0)
-		{
-			result.DisabledReason = "SoftEdge";
 			return result;
 		}
 
@@ -1527,16 +1534,15 @@ namespace PhobosFogExploredOverlay
 		}
 	}
 
-	static bool DrawCoalescedRects(
-		std::vector<OverlayDrawRect>& rects,
-		const RectangleStruct& bounds,
-		ColorStruct& color,
-		int& drawRectCount,
-		const int maxDrawRects)
+	static void BuildCoalescedRects(
+		const std::vector<OverlaySpan>& unionSpans,
+		std::vector<OverlayDrawRect>& rects)
 	{
-		if (rects.empty())
+		rects.clear();
+		rects.reserve(unionSpans.size());
+		for (const auto& span : unionSpans)
 		{
-			return true;
+			rects.push_back(OverlayDrawRect { span.X1, span.Y, span.X2 - span.X1, 1, span.Alpha });
 		}
 
 		std::sort(rects.begin(), rects.end(), [](const OverlayDrawRect& lhs, const OverlayDrawRect& rhs)
@@ -1559,6 +1565,7 @@ namespace PhobosFogExploredOverlay
 			return lhs.Y < rhs.Y;
 		});
 
+		size_t output = 0;
 		for (size_t i = 0; i < rects.size();)
 		{
 			OverlayDrawRect merged = rects[i++];
@@ -1573,14 +1580,26 @@ namespace PhobosFogExploredOverlay
 				++i;
 			}
 
-			RectangleStruct drawRect { merged.X, merged.Y, merged.Width, merged.Height };
+			rects[output++] = merged;
+		}
+		rects.resize(output);
+	}
 
-			if (!DrawClippedRectTrans(drawRect, bounds, color, merged.Alpha, drawRectCount, maxDrawRects))
+	static bool DrawPreparedRects(
+		const std::vector<OverlayDrawRect>& rects,
+		const RectangleStruct& bounds,
+		ColorStruct& color,
+		int& drawRectCount,
+		const int maxDrawRects)
+	{
+		for (const auto& rect : rects)
+		{
+			RectangleStruct drawRect { rect.X, rect.Y, rect.Width, rect.Height };
+			if (!DrawClippedRectTrans(drawRect, bounds, color, rect.Alpha, drawRectCount, maxDrawRects))
 			{
 				return false;
 			}
 		}
-
 		return true;
 	}
 
@@ -1961,21 +1980,8 @@ namespace PhobosFogExploredOverlay
 		int& drawRectCount,
 		const int maxDrawRects)
 	{
-		if (unionSpans.empty())
-		{
-			return true;
-		}
-
-		auto& mergedRects = OverlayScratchDrawRects;
-		mergedRects.clear();
-		mergedRects.reserve(std::max(mergedRects.capacity(), unionSpans.size()));
-
-		for (const auto& span : unionSpans)
-		{
-			mergedRects.push_back(OverlayDrawRect { span.X1, span.Y, span.X2 - span.X1, 1, span.Alpha });
-		}
-
-		return DrawCoalescedRects(mergedRects, bounds, color, drawRectCount, maxDrawRects);
+		BuildCoalescedRects(unionSpans, OverlayScratchDrawRects);
+		return DrawPreparedRects(OverlayScratchDrawRects, bounds, color, drawRectCount, maxDrawRects);
 	}
 
 	static int ScaleOverlayAlpha(const int alpha, const int numerator, const int denominator)
@@ -3829,14 +3835,15 @@ namespace PhobosFogExploredOverlay
 			++OverlayRegionCacheTotalHits;
 			++OverlayRegionCacheHitStreak;
 
-			const bool regionDrawSucceeded = DrawUnionSpans(
-				OverlayFinalRegionCache.FinalRegionUnionSpans,
+			const bool regionDrawSucceeded = DrawPreparedRects(
+				OverlayFinalRegionCache.MainRects,
 				bounds,
 				color,
 				drawRectCount,
-				maxDrawRects);
+				maxDrawRects)
+				&& DrawPreparedRects(OverlayFinalRegionCache.EdgeRects, bounds, color, drawRectCount, maxDrawRects);
 			const bool hitMaxDrawRects = !regionDrawSucceeded;
-			const size_t unionSpanCount = OverlayFinalRegionCache.FinalRegionUnionSpans.size();
+			const size_t unionSpanCount = OverlayFinalRegionCache.FinalRegionUnionSpans.size() + OverlayFinalRegionCache.EdgeUnionSpanCount;
 			const int drawRectBatchReduction = std::max(0, ClampDebugCount(unionSpanCount) - drawRectCount);
 
 			OverlayPerfSnapshot perfSnapshot {};
@@ -4245,16 +4252,50 @@ namespace PhobosFogExploredOverlay
 				OverlayFinalRegionCache.FinalRegionUnionSpans.end(),
 				finalRegionUnionSpans.begin(),
 				finalRegionUnionSpans.end());
+			BuildCoalescedRects(finalRegionUnionSpans, OverlayFinalRegionCache.MainRects);
+			OverlayFinalRegionCache.EdgeRects.clear();
+			OverlayFinalRegionCache.EdgeUnionSpanCount = 0;
 			OverlayFinalRegionCache.Stats = rebuildStats;
 			OverlayFinalRegionCache.TemporalCacheFirstInvalidFrame = cacheDecision.TemporalCacheFirstInvalidFrame;
 		}
 
-		const auto& regionSpansToDraw = cacheDecision.CacheEnabled && cacheDecision.CacheAllowed && OverlayFinalRegionCache.Valid
-			? OverlayFinalRegionCache.FinalRegionUnionSpans
-			: finalRegionUnionSpans;
-		const bool regionDrawSucceeded = DrawUnionSpans(regionSpansToDraw, bounds, color, drawRectCount, maxDrawRects);
+		const bool cachePreparedRects = cacheDecision.CacheEnabled && cacheDecision.CacheAllowed;
+		bool regionDrawSucceeded = cachePreparedRects
+			? DrawPreparedRects(OverlayFinalRegionCache.MainRects, bounds, color, drawRectCount, maxDrawRects)
+			: DrawUnionSpans(finalRegionUnionSpans, bounds, color, drawRectCount, maxDrawRects);
+		size_t unionSpanCount = finalRegionUnionSpans.size();
+
+		// Keep pass order and one shared rectangle budget. Never submit edges after
+		// an incomplete main pass, and cache an empty edge pass as empty as well.
+		if (regionDrawSucceeded && !edgeSpans.empty())
+		{
+			auto& edgeUnionSpans = OverlayScratchEdgeUnionSpans;
+			MergeSpansToUnionSpans(edgeSpans, edgeUnionSpans);
+			unionSpanCount += edgeUnionSpans.size();
+			if (cachePreparedRects)
+			{
+				BuildCoalescedRects(edgeUnionSpans, OverlayFinalRegionCache.EdgeRects);
+				OverlayFinalRegionCache.EdgeUnionSpanCount = edgeUnionSpans.size();
+				regionDrawSucceeded = DrawPreparedRects(OverlayFinalRegionCache.EdgeRects, bounds, color, drawRectCount, maxDrawRects);
+			}
+			else
+			{
+				regionDrawSucceeded = DrawUnionSpans(edgeUnionSpans, bounds, color, drawRectCount, maxDrawRects);
+			}
+		}
+
+		if constexpr (UseLegacyCliffCoverInRegionMaskPrototype)
+		{
+			if (regionDrawSucceeded && !cliffSpans.empty())
+			{
+				auto& cliffUnionSpans = OverlayScratchCliffUnionSpans;
+				MergeSpansToUnionSpans(cliffSpans, cliffUnionSpans);
+				unionSpanCount += cliffUnionSpans.size();
+				regionDrawSucceeded = DrawUnionSpans(cliffUnionSpans, bounds, color, drawRectCount, maxDrawRects);
+			}
+		}
+
 		const bool hitMaxDrawRects = !regionDrawSucceeded;
-		const size_t unionSpanCount = regionSpansToDraw.size();
 		const int drawRectBatchReduction = std::max(0, ClampDebugCount(unionSpanCount) - drawRectCount);
 
 		rebuildStats.DrawRects = drawRectCount;
@@ -4372,40 +4413,6 @@ namespace PhobosFogExploredOverlay
 		}
 
 		LogOverlayPerfSummary(perfSnapshot);
-
-		if (!regionDrawSucceeded)
-		{
-			return;
-		}
-
-		if (!edgeSpans.empty())
-		{
-			auto& edgeUnionSpans = OverlayScratchEdgeUnionSpans;
-			edgeUnionSpans.clear();
-
-			MergeSpansToUnionSpans(edgeSpans, edgeUnionSpans);
-
-			if (!DrawUnionSpans(edgeUnionSpans, bounds, color, drawRectCount, maxDrawRects))
-			{
-				return;
-			}
-		}
-
-		if constexpr (UseLegacyCliffCoverInRegionMaskPrototype)
-		{
-			if (!cliffSpans.empty())
-			{
-				auto& cliffUnionSpans = OverlayScratchCliffUnionSpans;
-				cliffUnionSpans.clear();
-
-				MergeSpansToUnionSpans(cliffSpans, cliffUnionSpans);
-
-				if (!DrawUnionSpans(cliffUnionSpans, bounds, color, drawRectCount, maxDrawRects))
-				{
-					return;
-				}
-			}
-		}
 	}
 }
 

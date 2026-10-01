@@ -1,6 +1,7 @@
 #include <Phobos.h>
 
 #include <LoadOptionsClass.h>
+#include <Misc/PhobosFogOverlay.h>
 
 #include <Ext/Aircraft/Body.h>
 #include <Ext/AnimType/Body.h>
@@ -260,6 +261,7 @@ DEFINE_HOOK(0x7258D0, AnnounceInvalidPointer, 0x6)
 
 DEFINE_HOOK(0x685659, Scenario_ClearClasses, 0xa)
 {
+	PhobosFogExploredOverlay::ResetCache();
 	PhobosTypeRegistry::Clear();
 	return 0;
 }
