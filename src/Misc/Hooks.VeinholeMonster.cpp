@@ -1,5 +1,3 @@
-#include "PhobosFogOverlay.h"
-
 #include <Ext/Anim/Body.h>
 #include <Ext/House/Body.h>
 #include <Ext/Rules/Body.h>
@@ -211,8 +209,6 @@ namespace PhobosFogExploredOverlay
 		int DrawRects { 0 };
 		int DrawRectBatchReduction { 0 };
 		size_t DrawRectScratchCapacity { 0 };
-		int GeometryProbes { 0 };
-		int VisibilityQueries { 0 };
 		size_t RowBucketInputSpans { 0 };
 		int RowBucketNonEmptyRows { 0 };
 		size_t RowBucketMainUnionSpans { 0 };
@@ -322,47 +318,11 @@ namespace PhobosFogExploredOverlay
 		int TemplateFallbacks { 0 };
 	};
 
-	struct OverlayGeometryInput
-	{
-		bool ValidCell { false };
-		int FlatX { 0 };
-		int FlatY { 0 };
-		int HeightX { 0 };
-		int HeightY { 0 };
-		bool FlatOnScreen { false };
-		bool HeightOnScreen { false };
-		bool operator==(const OverlayGeometryInput&) const = default;
-	};
-
-	struct OverlayVisibilityInput
-	{
-		OverlayCellKind Kind { OverlayCellKind::Unknown };
-		int MainAlpha { 0 };
-		int EdgeAlpha { 0 };
-		bool operator==(const OverlayVisibilityInput&) const = default;
-	};
-
-	struct OverlayHouseInput
-	{
-		HouseClass* House { nullptr };
-		unsigned int StateVersion { 0 };
-		bool FullMapVisible { false };
-		bool operator==(const OverlayHouseInput&) const = default;
-	};
-
 	struct OverlayRegionCacheEntry
 	{
 		bool Valid { false };
 		OverlayRegionCacheKey Key {};
 		std::vector<OverlaySpan> FinalRegionUnionSpans {};
-		std::vector<OverlayDrawRect> MainRects {};
-		std::vector<OverlayDrawRect> EdgeRects {};
-		size_t EdgeUnionSpanCount { 0 };
-		std::vector<OverlayGeometryInput> GeometryInputs {};
-		std::vector<OverlayVisibilityInput> VisibilityInputs {};
-		std::vector<OverlayHouseInput> HouseInputs {};
-		int NextAlphaChangeFrame { 0 };
-		int LastValidatedFrame { -1 };
 		OverlayRegionCacheStats Stats {};
 		int TemporalCacheFirstInvalidFrame { 0 };
 	};
@@ -378,29 +338,11 @@ namespace PhobosFogExploredOverlay
 		OverlayRegionCacheKey Key {};
 	};
 
-	static std::vector<OverlayGeometryInput> OverlayScratchGeometryInputs {};
-	static std::vector<OverlayVisibilityInput> OverlayScratchVisibilityInputs {};
-	static std::vector<OverlayHouseInput> OverlayScratchHouseInputs {};
-	static const std::vector<OverlayGeometryInput>* ActiveOverlayGeometryInputs = nullptr;
-	static int ActiveOverlayGeometryMinX = 0;
-	static int ActiveOverlayGeometryMinY = 0;
-	static int ActiveOverlayGeometryWidth = 0;
-	static int ActiveOverlayGeometryHeight = 0;
-	static int OverlayFrameGeometryProbes = 0;
-	static int OverlayFrameVisibilityQueries = 0;
 	static OverlayRegionCacheEntry OverlayFinalRegionCache {};
 	static unsigned long long OverlayRegionCacheTotalHits = 0;
 	static unsigned long long OverlayRegionCacheTotalMisses = 0;
 	static unsigned long long OverlayRegionCacheTotalRebuilds = 0;
 	static int OverlayRegionCacheHitStreak = 0;
-	// Scenario teardown must invalidate screen geometry even if the next game's
-	// house address, visibility version and viewport happen to reuse the same key.
-	void ResetCache()
-	{
-		OverlayFinalRegionCache = {};
-		OverlayRegionCacheHitStreak = 0;
-	}
-
 	static std::vector<OverlaySpan> OverlayScratchEdgeSpans {};
 	static std::vector<OverlaySpan> OverlayScratchCliffSpans {};
 	static std::vector<OverlaySpan> OverlayScratchVerticalFaceSpans {};
@@ -586,6 +528,7 @@ namespace PhobosFogExploredOverlay
 	static bool OverlayRegionCacheKeysEqual(const OverlayRegionCacheKey& lhs, const OverlayRegionCacheKey& rhs)
 	{
 		return lhs.ViewerHouse == rhs.ViewerHouse
+			&& lhs.OverlayEffectiveVisibilityVersionHash == rhs.OverlayEffectiveVisibilityVersionHash
 			&& lhs.OverlayViewportHash == rhs.OverlayViewportHash
 			&& lhs.OverlayConfigHash == rhs.OverlayConfigHash;
 	}
@@ -831,6 +774,18 @@ namespace PhobosFogExploredOverlay
 			result.TemporalCacheFirstInvalidFrame);
 		result.TemporalFullMapFirstInvalidFrame = result.TemporalCacheFirstInvalidFrame;
 
+		if (fadeInFrames > 0)
+		{
+			result.DisabledReason = "FadeIn";
+			return result;
+		}
+
+		if (softEdge && softEdgeVisibleAlpha > 0 && softEdgePadding > 0)
+		{
+			result.DisabledReason = "SoftEdge";
+			return result;
+		}
+
 		result.CacheAllowed = true;
 		result.DisabledReason = "None";
 		return result;
@@ -920,21 +875,26 @@ namespace PhobosFogExploredOverlay
 			regionDilationAlphaNumerator,
 			regionDilationAlphaDenominator);
 
-		result.CacheAllowed = true;
-		result.DisabledReason = "None";
+		if (fadeInFrames > 0)
+		{
+			result.DisabledReason = "FadeIn";
+		}
+		else
+		{
+			result.CacheAllowed = true;
+			result.DisabledReason = "None";
+		}
 
 		return result;
 	}
 
 	static bool TryGetCellStateForHouse(HouseClass* const pHouse, const int cellIndex, HouseExt::PhobosFogCellState& state)
 	{
-		++OverlayFrameVisibilityQueries;
 		return HouseExt::ExtData::TryGetEffectivePhobosFogCellStateForHouse(pHouse, cellIndex, state);
 	}
 
 	static bool TryGetLastVisibleFrameForHouse(HouseClass* const pHouse, const int cellIndex, int& frame)
 	{
-		++OverlayFrameVisibilityQueries;
 		const auto pHouseExt = HouseExt::ExtMap.TryFind(pHouse);
 
 		if (!pHouseExt || pHouseExt->PhobosFog_LastVisibleFrames.size() != MapClass::MaxCells)
@@ -1043,9 +1003,8 @@ namespace PhobosFogExploredOverlay
 		return GetOverlayCellKindForViewerAndAllies(pViewerHouse, cellIndex);
 	}
 
-	static std::pair<Point2D, bool> ProjectOverlayCellClient(const CellStruct& cell, const bool heightAware, const int heightYOffset)
+	static std::pair<Point2D, bool> GetOverlayCellClient(const CellStruct& cell, const bool heightAware, const int heightYOffset)
 	{
-		++OverlayFrameGeometryProbes;
 		CoordStruct coords = CellClass::Cell2Coord(cell);
 
 		if (heightAware)
@@ -1059,21 +1018,6 @@ namespace PhobosFogExploredOverlay
 		auto result = TacticalClass::Instance->CoordsToClient(coords);
 		result.first.Y += heightYOffset;
 		return result;
-	}
-
-	static std::pair<Point2D, bool> GetOverlayCellClient(const CellStruct& cell, const bool heightAware, const int heightYOffset)
-	{
-		const int x = cell.X - ActiveOverlayGeometryMinX;
-		const int y = cell.Y - ActiveOverlayGeometryMinY;
-		if (ActiveOverlayGeometryInputs && x >= 0 && y >= 0
-			&& x < ActiveOverlayGeometryWidth && y < ActiveOverlayGeometryHeight)
-		{
-			const auto& input = (*ActiveOverlayGeometryInputs)[static_cast<size_t>(y * ActiveOverlayGeometryWidth + x)];
-			return heightAware
-				? std::pair<Point2D, bool> { { input.HeightX, input.HeightY }, input.HeightOnScreen }
-				: std::pair<Point2D, bool> { { input.FlatX, input.FlatY }, input.FlatOnScreen };
-		}
-		return ProjectOverlayCellClient(cell, heightAware, heightYOffset);
 	}
 
 	static FrontierInfo ClassifyExploredOverlayFrontier(HouseClass* const pViewerHouse, const CellStruct& cell, const int frontierMode)
@@ -1129,37 +1073,30 @@ namespace PhobosFogExploredOverlay
 		return result;
 	}
 
-	static int ComputeOverlayFadeAlpha(const int baseAlpha, const int currentFrame, const int lastVisibleFrame, const int fadeInFrames)
-	{
-		const int alpha = ClampAlpha(baseAlpha);
-		if (alpha <= 0 || fadeInFrames <= 0 || lastVisibleFrame < 0)
-			return alpha;
-
-		const auto elapsedFrames = static_cast<long long>(currentFrame) - lastVisibleFrame;
-		if (elapsedFrames < 0 || elapsedFrames >= fadeInFrames)
-			return alpha;
-
-		return ClampAlpha(static_cast<int>(alpha * elapsedFrames / fadeInFrames));
-	}
-
-	static int NextOverlayAlphaChangeFrame(const int currentFrame, const int lastVisibleFrame, const int fadeInFrames)
-	{
-		if (fadeInFrames <= 0 || lastVisibleFrame < 0)
-			return 0;
-		if (lastVisibleFrame > currentFrame)
-			return lastVisibleFrame;
-		if (static_cast<long long>(currentFrame) - lastVisibleFrame < fadeInFrames)
-			return currentFrame < INT_MAX ? currentFrame + 1 : INT_MAX;
-		return 0;
-	}
-
 	static int ApplyFadeInAlpha(const int baseAlpha, HouseClass* const pViewerHouse, const int cellIndex, const int fadeInFrames)
 	{
 		const int alpha = ClampAlpha(baseAlpha);
+
 		if (alpha <= 0 || fadeInFrames <= 0)
+		{
 			return alpha;
-		return ComputeOverlayFadeAlpha(alpha, Unsorted::CurrentFrame,
-			GetLastVisibleFrameForViewerAndAllies(pViewerHouse, cellIndex), fadeInFrames);
+		}
+
+		const int lastVisibleFrame = GetLastVisibleFrameForViewerAndAllies(pViewerHouse, cellIndex);
+
+		if (lastVisibleFrame < 0)
+		{
+			return alpha;
+		}
+
+		const int elapsedFrames = Unsorted::CurrentFrame - lastVisibleFrame;
+
+		if (elapsedFrames < 0 || elapsedFrames >= fadeInFrames)
+		{
+			return alpha;
+		}
+
+		return ClampAlpha(alpha * elapsedFrames / fadeInFrames);
 	}
 
 	static int StableCellNoise(const int cellIndex)
@@ -1183,76 +1120,6 @@ namespace PhobosFogExploredOverlay
 		const int range = variance * 2 + 1;
 		const int offset = StableCellNoise(cellIndex) % range - variance;
 		return ClampAlpha(baseAlpha + offset);
-	}
-
-	static void BuildOverlayHouseInputs(HouseClass* const pViewerHouse, std::vector<OverlayHouseInput>& inputs)
-	{
-		inputs.clear();
-		for (auto const pHouse : HouseClass::Array)
-		{
-			if (!IsEligibleViewerOrAllyHouse(pViewerHouse, pHouse))
-				continue;
-			const auto pExt = HouseExt::ExtMap.TryFind(pHouse);
-			inputs.push_back({ pHouse, pExt ? pExt->PhobosFog_StateVersion : 0U,
-				pExt && pExt->IsPhobosFogFullMapHardVisible() });
-		}
-	}
-
-	static void BuildOverlayGeometryInputs(const int minX, const int maxX, const int minY, const int maxY,
-		const int heightYOffset, std::vector<OverlayGeometryInput>& inputs)
-	{
-		inputs.clear();
-		// One-cell halo covers frontier diagonals, soft edges and active height faces.
-		for (int y = minY - 1; y <= maxY + 1; ++y)
-		{
-			for (int x = minX - 1; x <= maxX + 1; ++x)
-			{
-				const CellStruct cell { static_cast<short>(x), static_cast<short>(y) };
-				const auto flat = ProjectOverlayCellClient(cell, false, heightYOffset);
-				const auto height = ProjectOverlayCellClient(cell, true, heightYOffset);
-				inputs.push_back({ MapClass::Instance.TryGetCellAt(cell) != nullptr,
-					flat.first.X, flat.first.Y, height.first.X, height.first.Y, flat.second, height.second });
-			}
-		}
-	}
-
-	static void BuildOverlayVisibilityInputs(HouseClass* const pViewerHouse,
-		const int minX, const int maxX, const int minY, const int maxY,
-		const int alpha, const int alphaVariance, const int edgeAlpha, const int fadeInFrames,
-		std::vector<OverlayVisibilityInput>& inputs, int& nextAlphaChangeFrame)
-	{
-		inputs.clear();
-		nextAlphaChangeFrame = 0;
-		for (int y = minY - 1; y <= maxY + 1; ++y)
-		{
-			for (int x = minX - 1; x <= maxX + 1; ++x)
-			{
-				const CellStruct cell { static_cast<short>(x), static_cast<short>(y) };
-				int cellIndex = -1;
-				OverlayVisibilityInput input {};
-				if (TryGetExploredOverlayCellIndex(cell, cellIndex))
-					input.Kind = GetOverlayCellKindForViewerAndAllies(pViewerHouse, cellIndex);
-				if (input.Kind == OverlayCellKind::ExploredOverlay && x >= minX && x <= maxX && y >= minY && y <= maxY)
-				{
-					const int lastVisibleFrame = fadeInFrames > 0 ? GetLastVisibleFrameForViewerAndAllies(pViewerHouse, cellIndex) : -1;
-					input.MainAlpha = ComputeOverlayFadeAlpha(ComputeCellAlpha(alpha, cellIndex, alphaVariance), Unsorted::CurrentFrame, lastVisibleFrame, fadeInFrames);
-					input.EdgeAlpha = ComputeOverlayFadeAlpha(edgeAlpha, Unsorted::CurrentFrame, lastVisibleFrame, fadeInFrames);
-					// Include zero-alpha sources and future timestamps: both may change later.
-					const int next = NextOverlayAlphaChangeFrame(Unsorted::CurrentFrame, lastVisibleFrame, fadeInFrames);
-					if (next > 0 && (nextAlphaChangeFrame == 0 || next < nextAlphaChangeFrame))
-						nextAlphaChangeFrame = next;
-				}
-				inputs.push_back(input);
-			}
-		}
-	}
-
-	static bool CanReuseOverlayVisibilityInputs(const OverlayRegionCacheEntry& cache,
-		const std::vector<OverlayHouseInput>& houses, const int currentFrame)
-	{
-		return cache.HouseInputs == houses && currentFrame >= cache.LastValidatedFrame
-			&& (cache.NextAlphaChangeFrame == 0 || currentFrame < cache.NextAlphaChangeFrame)
-			&& (cache.TemporalCacheFirstInvalidFrame == 0 || currentFrame < cache.TemporalCacheFirstInvalidFrame);
 	}
 
 	static bool TryClipRectToBounds(const RectangleStruct& rect, const RectangleStruct& bounds, RectangleStruct& clipped)
@@ -1660,15 +1527,16 @@ namespace PhobosFogExploredOverlay
 		}
 	}
 
-	static void BuildCoalescedRects(
-		const std::vector<OverlaySpan>& unionSpans,
-		std::vector<OverlayDrawRect>& rects)
+	static bool DrawCoalescedRects(
+		std::vector<OverlayDrawRect>& rects,
+		const RectangleStruct& bounds,
+		ColorStruct& color,
+		int& drawRectCount,
+		const int maxDrawRects)
 	{
-		rects.clear();
-		rects.reserve(unionSpans.size());
-		for (const auto& span : unionSpans)
+		if (rects.empty())
 		{
-			rects.push_back(OverlayDrawRect { span.X1, span.Y, span.X2 - span.X1, 1, span.Alpha });
+			return true;
 		}
 
 		std::sort(rects.begin(), rects.end(), [](const OverlayDrawRect& lhs, const OverlayDrawRect& rhs)
@@ -1691,7 +1559,6 @@ namespace PhobosFogExploredOverlay
 			return lhs.Y < rhs.Y;
 		});
 
-		size_t output = 0;
 		for (size_t i = 0; i < rects.size();)
 		{
 			OverlayDrawRect merged = rects[i++];
@@ -1706,26 +1573,14 @@ namespace PhobosFogExploredOverlay
 				++i;
 			}
 
-			rects[output++] = merged;
-		}
-		rects.resize(output);
-	}
+			RectangleStruct drawRect { merged.X, merged.Y, merged.Width, merged.Height };
 
-	static bool DrawPreparedRects(
-		const std::vector<OverlayDrawRect>& rects,
-		const RectangleStruct& bounds,
-		ColorStruct& color,
-		int& drawRectCount,
-		const int maxDrawRects)
-	{
-		for (const auto& rect : rects)
-		{
-			RectangleStruct drawRect { rect.X, rect.Y, rect.Width, rect.Height };
-			if (!DrawClippedRectTrans(drawRect, bounds, color, rect.Alpha, drawRectCount, maxDrawRects))
+			if (!DrawClippedRectTrans(drawRect, bounds, color, merged.Alpha, drawRectCount, maxDrawRects))
 			{
 				return false;
 			}
 		}
+
 		return true;
 	}
 
@@ -2106,8 +1961,21 @@ namespace PhobosFogExploredOverlay
 		int& drawRectCount,
 		const int maxDrawRects)
 	{
-		BuildCoalescedRects(unionSpans, OverlayScratchDrawRects);
-		return DrawPreparedRects(OverlayScratchDrawRects, bounds, color, drawRectCount, maxDrawRects);
+		if (unionSpans.empty())
+		{
+			return true;
+		}
+
+		auto& mergedRects = OverlayScratchDrawRects;
+		mergedRects.clear();
+		mergedRects.reserve(std::max(mergedRects.capacity(), unionSpans.size()));
+
+		for (const auto& span : unionSpans)
+		{
+			mergedRects.push_back(OverlayDrawRect { span.X1, span.Y, span.X2 - span.X1, 1, span.Alpha });
+		}
+
+		return DrawCoalescedRects(mergedRects, bounds, color, drawRectCount, maxDrawRects);
 	}
 
 	static int ScaleOverlayAlpha(const int alpha, const int numerator, const int denominator)
@@ -2618,7 +2486,7 @@ namespace PhobosFogExploredOverlay
 		};
 
 		Debug::Log(
-			"[PhobosFog][Perf] Frame=%d ElapsedMs=%u FrameDelta=%d FPS=%.2f OverlayDrawCalls=%d SourceCells=%d RawMainSpans=%d MergedMainSpans=%d PreCompactMainSpans=%d CompactMainSpans=%d CompactClosedGaps=%d HeightFaceEnabled=%s HeightFaceAccepted=%d HeightFaceRawSpans=%d HeightFaceMaxDrop=%d FallbackDilationY=%d FallbackDilationRawSpans=%d FinalMergeInputSpans=%d FinalMergedSpans=%d ClosedGaps=%d UnionSpans=%d DrawRects=%d DrawRectBatchReduction=%d DrawRectScratchCapacity=%d GeometryProbes=%d VisibilityQueries=%d RowBucketInputSpans=%d RowBucketNonEmptyRows=%d RowBucketMainUnionSpans=%d TemplateEnabled=%s RectTemplateRows=%d DiamondTemplateRows=%d TemplateCandidateRows=%d TemplateVisibleRows=%d TemplateInstantiatedRows=%d TemplateClippedRows=%d TemplateYRejectedRows=%d TemplateXRejectedRows=%d TemplateFallbacks=%d MaxDrawRects=%d HitMaxDrawRects=%s SoftEdgeEnabled=%s LegacyCliffCoverBypassed=%s PhobosFogStateVersion=%u StateVersionDelta=%u RawEffectiveVisibilityVersionHash=%u RawEffectiveHashChanged=%s OverlayEffectiveVersion=%u OverlayEffectiveVersionDelta=%u OverlayEffectiveVisibilityVersionHash=%u OverlayEffectiveHashChanged=%s OverlayEffectiveBatchTouchedCells=%d OverlayEffectiveBatchChangedCells=%d OverlayEffectiveTouchesSinceLastPerf=%llu OverlayViewportHash=%u ViewportHashChanged=%s OverlayConfigHash=%u ConfigHashChanged=%s OverlayCacheEnabled=%s OverlayCacheAllowed=%s OverlayCacheDisabledReason=%s OverlayCacheHit=%s OverlayCacheMiss=%s OverlayCacheRebuild=%s OverlayCacheHitsSinceLastPerf=%llu OverlayCacheMissesSinceLastPerf=%llu OverlayCacheRebuildsSinceLastPerf=%llu OverlayCacheHitStreak=%d OverlayCacheCachedFinalSpans=%d TemporalVisibilityActive=%s TemporalCellExpiryScanSkipped=%s TemporalFullMapFirstInvalidFrame=%d TemporalCacheFirstInvalidFrame=%d TemporalCacheExpiresInFrames=%d TemporalCacheHitBlockedByExpiry=%s StageAOnly=%s StateTouchesSinceLastPerf=%llu TouchUnknown=%llu TouchReset=%llu TouchEnsureResize=%llu TouchDegradeVisibleToExplored=%llu TouchMarkExplored=%llu TouchMarkVisible=%llu TouchMarkVisibleUntil=%llu TouchMarkAreaVisible=%llu TouchMarkCellSpreadVisible=%llu TouchMarkAllExplored=%llu TouchMarkAllVisible=%llu TouchFullMapVisibleUntil=%llu TouchSpySatPersistentVisibleEdge=%llu TouchOther=%llu\n",
+			"[PhobosFog][Perf] Frame=%d ElapsedMs=%u FrameDelta=%d FPS=%.2f OverlayDrawCalls=%d SourceCells=%d RawMainSpans=%d MergedMainSpans=%d PreCompactMainSpans=%d CompactMainSpans=%d CompactClosedGaps=%d HeightFaceEnabled=%s HeightFaceAccepted=%d HeightFaceRawSpans=%d HeightFaceMaxDrop=%d FallbackDilationY=%d FallbackDilationRawSpans=%d FinalMergeInputSpans=%d FinalMergedSpans=%d ClosedGaps=%d UnionSpans=%d DrawRects=%d DrawRectBatchReduction=%d DrawRectScratchCapacity=%d RowBucketInputSpans=%d RowBucketNonEmptyRows=%d RowBucketMainUnionSpans=%d TemplateEnabled=%s RectTemplateRows=%d DiamondTemplateRows=%d TemplateCandidateRows=%d TemplateVisibleRows=%d TemplateInstantiatedRows=%d TemplateClippedRows=%d TemplateYRejectedRows=%d TemplateXRejectedRows=%d TemplateFallbacks=%d MaxDrawRects=%d HitMaxDrawRects=%s SoftEdgeEnabled=%s LegacyCliffCoverBypassed=%s PhobosFogStateVersion=%u StateVersionDelta=%u RawEffectiveVisibilityVersionHash=%u RawEffectiveHashChanged=%s OverlayEffectiveVersion=%u OverlayEffectiveVersionDelta=%u OverlayEffectiveVisibilityVersionHash=%u OverlayEffectiveHashChanged=%s OverlayEffectiveBatchTouchedCells=%d OverlayEffectiveBatchChangedCells=%d OverlayEffectiveTouchesSinceLastPerf=%llu OverlayViewportHash=%u ViewportHashChanged=%s OverlayConfigHash=%u ConfigHashChanged=%s OverlayCacheEnabled=%s OverlayCacheAllowed=%s OverlayCacheDisabledReason=%s OverlayCacheHit=%s OverlayCacheMiss=%s OverlayCacheRebuild=%s OverlayCacheHitsSinceLastPerf=%llu OverlayCacheMissesSinceLastPerf=%llu OverlayCacheRebuildsSinceLastPerf=%llu OverlayCacheHitStreak=%d OverlayCacheCachedFinalSpans=%d TemporalVisibilityActive=%s TemporalCellExpiryScanSkipped=%s TemporalFullMapFirstInvalidFrame=%d TemporalCacheFirstInvalidFrame=%d TemporalCacheExpiresInFrames=%d TemporalCacheHitBlockedByExpiry=%s StageAOnly=%s StateTouchesSinceLastPerf=%llu TouchUnknown=%llu TouchReset=%llu TouchEnsureResize=%llu TouchDegradeVisibleToExplored=%llu TouchMarkExplored=%llu TouchMarkVisible=%llu TouchMarkVisibleUntil=%llu TouchMarkAreaVisible=%llu TouchMarkCellSpreadVisible=%llu TouchMarkAllExplored=%llu TouchMarkAllVisible=%llu TouchFullMapVisibleUntil=%llu TouchSpySatPersistentVisibleEdge=%llu TouchOther=%llu\n",
 			currentFrame,
 			static_cast<unsigned int>(elapsedMs),
 			frameDelta,
@@ -2643,8 +2511,6 @@ namespace PhobosFogExploredOverlay
 			snapshot.DrawRects,
 			snapshot.DrawRectBatchReduction,
 			ClampDebugCount(snapshot.DrawRectScratchCapacity),
-			snapshot.GeometryProbes,
-			snapshot.VisibilityQueries,
 			ClampDebugCount(snapshot.RowBucketInputSpans),
 			snapshot.RowBucketNonEmptyRows,
 			ClampDebugCount(snapshot.RowBucketMainUnionSpans),
@@ -3706,8 +3572,6 @@ namespace PhobosFogExploredOverlay
 
 	static void Draw()
 	{
-		OverlayFrameGeometryProbes = 0;
-		OverlayFrameVisibilityQueries = 0;
 		const auto pRulesExt = RulesExt::Global();
 
 		if (!pRulesExt)
@@ -3951,58 +3815,28 @@ namespace PhobosFogExploredOverlay
 		ColorStruct color { 0, 0, 0 };
 		int drawRectCount = 0;
 
-		BuildOverlayHouseInputs(pViewerHouse, OverlayScratchHouseInputs);
-		BuildOverlayGeometryInputs(minX, maxX, minY, maxY, heightYOffset, OverlayScratchGeometryInputs);
-		// Reuse these probes on rebuild; do not repeat the engine projections per span.
-		ActiveOverlayGeometryInputs = &OverlayScratchGeometryInputs;
-		ActiveOverlayGeometryMinX = minX - 1;
-		ActiveOverlayGeometryMinY = minY - 1;
-		ActiveOverlayGeometryWidth = cellCountX + 2;
-		ActiveOverlayGeometryHeight = cellCountY + 2;
-		struct GeometryScope
-		{
-			~GeometryScope() { ActiveOverlayGeometryInputs = nullptr; }
-		} geometryScope;
-
 		const bool overlayCacheKeyMatches = cacheDecision.CacheEnabled
-			&& cacheDecision.CacheAllowed && OverlayFinalRegionCache.Valid
+			&& cacheDecision.CacheAllowed
+			&& OverlayFinalRegionCache.Valid
 			&& OverlayRegionCacheKeysEqual(OverlayFinalRegionCache.Key, cacheDecision.Key);
-		const bool geometryMatches = overlayCacheKeyMatches
-			&& OverlayFinalRegionCache.GeometryInputs == OverlayScratchGeometryInputs;
 		const bool temporalCacheHitBlockedByExpiry = overlayCacheKeyMatches
 			&& OverlayFinalRegionCache.TemporalCacheFirstInvalidFrame > 0
 			&& Unsorted::CurrentFrame >= OverlayFinalRegionCache.TemporalCacheFirstInvalidFrame;
-		const bool reuseVisibilityInputs = geometryMatches
-			&& CanReuseOverlayVisibilityInputs(OverlayFinalRegionCache, OverlayScratchHouseInputs, Unsorted::CurrentFrame);
-		int nextAlphaChangeFrame = OverlayFinalRegionCache.NextAlphaChangeFrame;
-		if (!reuseVisibilityInputs)
-		{
-			BuildOverlayVisibilityInputs(pViewerHouse, minX, maxX, minY, maxY,
-				alpha, alphaVariance, softEdgeEnabled ? softEdgeVisibleAlpha : 0, fadeInFrames,
-				OverlayScratchVisibilityInputs, nextAlphaChangeFrame);
-		}
-		const bool overlayCacheHit = geometryMatches && (reuseVisibilityInputs
-			|| OverlayFinalRegionCache.VisibilityInputs == OverlayScratchVisibilityInputs);
+		const bool overlayCacheHit = overlayCacheKeyMatches && !temporalCacheHitBlockedByExpiry;
 
 		if (overlayCacheHit)
 		{
-			OverlayFinalRegionCache.Key = cacheDecision.Key;
-			OverlayFinalRegionCache.HouseInputs = OverlayScratchHouseInputs;
-			OverlayFinalRegionCache.NextAlphaChangeFrame = nextAlphaChangeFrame;
-			OverlayFinalRegionCache.LastValidatedFrame = Unsorted::CurrentFrame;
-			OverlayFinalRegionCache.TemporalCacheFirstInvalidFrame = cacheDecision.TemporalCacheFirstInvalidFrame;
 			++OverlayRegionCacheTotalHits;
 			++OverlayRegionCacheHitStreak;
 
-			const bool regionDrawSucceeded = DrawPreparedRects(
-				OverlayFinalRegionCache.MainRects,
+			const bool regionDrawSucceeded = DrawUnionSpans(
+				OverlayFinalRegionCache.FinalRegionUnionSpans,
 				bounds,
 				color,
 				drawRectCount,
-				maxDrawRects)
-				&& DrawPreparedRects(OverlayFinalRegionCache.EdgeRects, bounds, color, drawRectCount, maxDrawRects);
+				maxDrawRects);
 			const bool hitMaxDrawRects = !regionDrawSucceeded;
-			const size_t unionSpanCount = OverlayFinalRegionCache.FinalRegionUnionSpans.size() + OverlayFinalRegionCache.EdgeUnionSpanCount;
+			const size_t unionSpanCount = OverlayFinalRegionCache.FinalRegionUnionSpans.size();
 			const int drawRectBatchReduction = std::max(0, ClampDebugCount(unionSpanCount) - drawRectCount);
 
 			OverlayPerfSnapshot perfSnapshot {};
@@ -4076,8 +3910,6 @@ namespace PhobosFogExploredOverlay
 				perfSnapshot.StateVersionTouchReasons[i] = cacheDiagnostics.StateVersionTouchReasons[i];
 			}
 
-			perfSnapshot.GeometryProbes = OverlayFrameGeometryProbes;
-			perfSnapshot.VisibilityQueries = OverlayFrameVisibilityQueries;
 			LogOverlayPerfSummary(perfSnapshot);
 
 			if (!regionDrawSucceeded)
@@ -4407,61 +4239,22 @@ namespace PhobosFogExploredOverlay
 		if (cacheDecision.CacheEnabled && cacheDecision.CacheAllowed)
 		{
 			OverlayFinalRegionCache.Valid = true;
-			OverlayFinalRegionCache.GeometryInputs = OverlayScratchGeometryInputs;
-			OverlayFinalRegionCache.VisibilityInputs = OverlayScratchVisibilityInputs;
-			OverlayFinalRegionCache.HouseInputs = OverlayScratchHouseInputs;
-			OverlayFinalRegionCache.NextAlphaChangeFrame = nextAlphaChangeFrame;
-			OverlayFinalRegionCache.LastValidatedFrame = Unsorted::CurrentFrame;
 			OverlayFinalRegionCache.Key = cacheDecision.Key;
 			OverlayFinalRegionCache.FinalRegionUnionSpans.clear();
 			OverlayFinalRegionCache.FinalRegionUnionSpans.insert(
 				OverlayFinalRegionCache.FinalRegionUnionSpans.end(),
 				finalRegionUnionSpans.begin(),
 				finalRegionUnionSpans.end());
-			BuildCoalescedRects(finalRegionUnionSpans, OverlayFinalRegionCache.MainRects);
-			OverlayFinalRegionCache.EdgeRects.clear();
-			OverlayFinalRegionCache.EdgeUnionSpanCount = 0;
 			OverlayFinalRegionCache.Stats = rebuildStats;
 			OverlayFinalRegionCache.TemporalCacheFirstInvalidFrame = cacheDecision.TemporalCacheFirstInvalidFrame;
 		}
 
-		const bool cachePreparedRects = cacheDecision.CacheEnabled && cacheDecision.CacheAllowed;
-		bool regionDrawSucceeded = cachePreparedRects
-			? DrawPreparedRects(OverlayFinalRegionCache.MainRects, bounds, color, drawRectCount, maxDrawRects)
-			: DrawUnionSpans(finalRegionUnionSpans, bounds, color, drawRectCount, maxDrawRects);
-		size_t unionSpanCount = finalRegionUnionSpans.size();
-
-		// Keep pass order and one shared rectangle budget. Never submit edges after
-		// an incomplete main pass, and cache an empty edge pass as empty as well.
-		if (regionDrawSucceeded && !edgeSpans.empty())
-		{
-			auto& edgeUnionSpans = OverlayScratchEdgeUnionSpans;
-			MergeSpansToUnionSpans(edgeSpans, edgeUnionSpans);
-			unionSpanCount += edgeUnionSpans.size();
-			if (cachePreparedRects)
-			{
-				BuildCoalescedRects(edgeUnionSpans, OverlayFinalRegionCache.EdgeRects);
-				OverlayFinalRegionCache.EdgeUnionSpanCount = edgeUnionSpans.size();
-				regionDrawSucceeded = DrawPreparedRects(OverlayFinalRegionCache.EdgeRects, bounds, color, drawRectCount, maxDrawRects);
-			}
-			else
-			{
-				regionDrawSucceeded = DrawUnionSpans(edgeUnionSpans, bounds, color, drawRectCount, maxDrawRects);
-			}
-		}
-
-		if constexpr (UseLegacyCliffCoverInRegionMaskPrototype)
-		{
-			if (regionDrawSucceeded && !cliffSpans.empty())
-			{
-				auto& cliffUnionSpans = OverlayScratchCliffUnionSpans;
-				MergeSpansToUnionSpans(cliffSpans, cliffUnionSpans);
-				unionSpanCount += cliffUnionSpans.size();
-				regionDrawSucceeded = DrawUnionSpans(cliffUnionSpans, bounds, color, drawRectCount, maxDrawRects);
-			}
-		}
-
+		const auto& regionSpansToDraw = cacheDecision.CacheEnabled && cacheDecision.CacheAllowed && OverlayFinalRegionCache.Valid
+			? OverlayFinalRegionCache.FinalRegionUnionSpans
+			: finalRegionUnionSpans;
+		const bool regionDrawSucceeded = DrawUnionSpans(regionSpansToDraw, bounds, color, drawRectCount, maxDrawRects);
 		const bool hitMaxDrawRects = !regionDrawSucceeded;
+		const size_t unionSpanCount = regionSpansToDraw.size();
 		const int drawRectBatchReduction = std::max(0, ClampDebugCount(unionSpanCount) - drawRectCount);
 
 		rebuildStats.DrawRects = drawRectCount;
@@ -4578,9 +4371,41 @@ namespace PhobosFogExploredOverlay
 			perfSnapshot.StateVersionTouchReasons[i] = cacheDiagnostics.StateVersionTouchReasons[i];
 		}
 
-		perfSnapshot.GeometryProbes = OverlayFrameGeometryProbes;
-		perfSnapshot.VisibilityQueries = OverlayFrameVisibilityQueries;
 		LogOverlayPerfSummary(perfSnapshot);
+
+		if (!regionDrawSucceeded)
+		{
+			return;
+		}
+
+		if (!edgeSpans.empty())
+		{
+			auto& edgeUnionSpans = OverlayScratchEdgeUnionSpans;
+			edgeUnionSpans.clear();
+
+			MergeSpansToUnionSpans(edgeSpans, edgeUnionSpans);
+
+			if (!DrawUnionSpans(edgeUnionSpans, bounds, color, drawRectCount, maxDrawRects))
+			{
+				return;
+			}
+		}
+
+		if constexpr (UseLegacyCliffCoverInRegionMaskPrototype)
+		{
+			if (!cliffSpans.empty())
+			{
+				auto& cliffUnionSpans = OverlayScratchCliffUnionSpans;
+				cliffUnionSpans.clear();
+
+				MergeSpansToUnionSpans(cliffSpans, cliffUnionSpans);
+
+				if (!DrawUnionSpans(cliffUnionSpans, bounds, color, drawRectCount, maxDrawRects))
+				{
+					return;
+				}
+			}
+		}
 	}
 }
 

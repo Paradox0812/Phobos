@@ -361,7 +361,6 @@
     <ClInclude Include="src\Misc\BlittersFix.h" />
     <ClInclude Include="src\Misc\FlyingStrings.h" />
     <ClInclude Include="src\Misc\MessageColumn.h" />
-    <ClInclude Include="src\Misc\PhobosFogOverlay.h" />
     <ClInclude Include="src\Misc\PhobosToolTip.h" />
     <ClInclude Include="src\Misc\SyncLogging.h" />
     <!-- src\New -->

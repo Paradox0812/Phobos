@@ -2,7 +2,6 @@
 
 #include <Ext/House/Body.h>
 #include <Ext/Rules/Body.h>
-#include <Utilities/Debug.h>
 
 namespace TerrainTypeTemp
 {
@@ -64,26 +63,6 @@ namespace PhobosFogTerrain
 	}
 }
 
-namespace TerrainAnimation
-{
-	static bool TryGetAnimationLength(TerrainTypeClass* const pType,
-		const TerrainTypeExt::ExtData* const pTypeExt, int& animationLength)
-	{
-		if (pTypeExt->AnimationLength.isset())
-		{
-			animationLength = pTypeExt->AnimationLength.Get();
-			return true;
-		}
-
-		const auto pImage = pType->GetImage();
-		if (!pImage)
-			return false;
-
-		animationLength = pImage->Frames / (2 * (pTypeExt->HasDamagedFrames + 1));
-		return true;
-	}
-}
-
 DEFINE_HOOK(0x71C84D, TerrainClass_AI_Animated, 0x6)
 {
 	enum { SkipGameCode = 0x71C8D5 };
@@ -96,21 +75,7 @@ DEFINE_HOOK(0x71C84D, TerrainClass_AI_Animated, 0x6)
 	{
 		auto const pTypeExt = TerrainTypeExt::ExtMap.Find(pType);
 
-		int animationLength = 0;
-		if (!TerrainAnimation::TryGetAnimationLength(pType, pTypeExt, animationLength))
-		{
-			// Do not invent an animation length: that could reset/spawn every tick.
-			// Limit diagnostics to the first occurrence in this process.
-			static bool missingImageReported = false;
-			if (!missingImageReported)
-			{
-				missingImageReported = true;
-				Debug::Log("[Phobos] TerrainClass_AI_Animated: TypeID=%.24s has no image and no explicit AnimationLength; skipping animation update. Check terrain art/resources. Further missing-image reports are suppressed.\n", pType->ID);
-			}
-			return SkipGameCode;
-		}
-
-		if (pThis->Animation.Value == animationLength)
+		if (pThis->Animation.Value == (pTypeExt->AnimationLength.isset() ? pTypeExt->AnimationLength.Get() : (pType->GetImage()->Frames / (2 * (pTypeExt->HasDamagedFrames + 1)))))
 		{
 			pThis->Animation.Value = 0;
 			pThis->Animation.Start(0);
